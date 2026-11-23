@@ -40,6 +40,8 @@ Every search and forecast fetch shares the Kanboard server's Open-Meteo quota, w
 address (600 calls a minute, 10,000 a day). To stay under it:
 
 - each user gets at most 10 place searches a minute;
+- each user gets at most 200 provider calls a day (searches and forecast fetches together), so one user
+  can never spend more than 200 of the server's 8,000 daily calls;
 - the whole server makes at most 300 provider calls a minute and 8,000 a day (searches and forecast
   fetches together);
 - each user has one forecast refresh in flight at a time;
@@ -47,14 +49,16 @@ address (600 calls a minute, 10,000 a day). To stay under it:
 
 The counts are kept by the database, so parallel requests cannot slip past them. A held-back refresh shows
 the cached forecast (or "Loading weather…") and the widget tries again up to twice on that page load. When
-the server-wide budget is spent, the widget shows the cached forecast (or says weather is unavailable) and
-place search says lookups are paused.
+a daily or server-wide budget is spent, the widget shows the cached forecast (or says weather is unavailable) and
+place search says lookups are paused. An invalid search query spends no budget.
 
 ### Ops note
 
 The limits live in Kanboard's `settings` table as a few small `windowsill_*` rows per active user and per
 window; old windows are deleted as new ones start. Rows for deleted users are not removed. On Postgres, two
-refreshes racing for the same user's lease log a duplicate-key error line; that is expected.
+refreshes racing for the same user's lease log a duplicate-key error line; that is expected. A budget row an
+admin edits into something that is not a count (non-numeric, or negative on MySQL) refuses that budget until
+its window ends.
 
 ## Requirements
 

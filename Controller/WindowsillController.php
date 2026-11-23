@@ -4,6 +4,7 @@ namespace Kanboard\Plugin\Windowsill\Controller;
 
 use Kanboard\Controller\BaseController;
 use Kanboard\Plugin\Windowsill\Model\Budget;
+use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 
 /**
@@ -22,24 +23,28 @@ class WindowsillController extends BaseController
     public function search(): void
     {
         $this->checkCSRFForm();
+        $query = $this->request->getValues()['q'] ?? null;
+        // Validated before any budget is taken, so malformed posts spend nothing.
+        if (!OpenMeteoClient::isValidQuery($query)) {
+            $this->flash->failure(t('Enter 2 to 100 characters.'));
+            $this->redirectToSettings();
+            return;
+        }
+
+        $userId = $this->userSession->getId();
         $now = time();
-        if (!$this->windowsillBudget->take('search_'.$this->userSession->getId(), Budget::USER_SEARCH, 60, $now)) {
+        if (!$this->windowsillBudget->take('search_'.$userId, Budget::USER_SEARCH, 60, $now)) {
             $this->flash->failure(t('Too many searches. Try again in a minute.'));
             $this->redirectToSettings();
             return;
         }
-        if (!$this->windowsillBudget->takeProviderCall($now)) {
+        if (!$this->windowsillBudget->takeProviderCall($userId, $now)) {
             $this->flash->failure(t('Weather lookups are paused for now. Try again later.'));
             $this->redirectToSettings();
             return;
         }
-        $values = $this->request->getValues();
-        $query = $values['q'] ?? null;
 
         try {
-            if (!is_string($query)) {
-                throw new \InvalidArgumentException('Query must be a string.');
-            }
             $places = $this->windowsillClient->searchPlaces($query);
         } catch (\InvalidArgumentException $e) {
             $this->flash->failure(t('Enter 2 to 100 characters.'));

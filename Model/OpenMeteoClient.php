@@ -54,13 +54,24 @@ class OpenMeteoClient
      * @throws \InvalidArgumentException when the trimmed query is not 2–100 characters
      * @throws ProviderException
      */
+    /**
+     * True for a place query searchPlaces() accepts: a string of 2 to 100 characters after trimming.
+     */
+    public static function isValidQuery(mixed $query): bool
+    {
+        if (!is_string($query)) {
+            return false;
+        }
+        $length = mb_strlen(trim($query));
+        return $length >= 2 && $length <= self::MAX_NAME;
+    }
+
     public function searchPlaces(string $query): array
     {
-        $query = trim($query);
-        $length = mb_strlen($query);
-        if ($length < 2 || $length > self::MAX_NAME) {
+        if (!self::isValidQuery($query)) {
             throw new \InvalidArgumentException('Place query must be 2 to 100 characters');
         }
+        $query = trim($query);
 
         $url = self::GEOCODE_URL.'?'.self::query([
             'name' => $query,

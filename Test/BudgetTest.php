@@ -6,6 +6,7 @@ use Kanboard\Model\SettingModel;
 use Kanboard\Plugin\Windowsill\Model\Budget;
 use Kanboard\Plugin\Windowsill\Plugin;
 use PicoDb\Driver\Sqlite;
+use PicoDb\SQLException;
 
 class BudgetTest extends Base
 {
@@ -56,6 +57,7 @@ class BudgetTest extends Base
         $this->assertSame(300, Budget::GLOBAL_MINUTE);
         $this->assertSame(8000, Budget::GLOBAL_DAY);
         $this->assertSame(10, Budget::USER_SEARCH);
+        $this->assertSame(200, Budget::USER_DAY);
     }
 
     public function testLimitThenNextWindow(): void
@@ -154,9 +156,10 @@ class BudgetTest extends Base
         $this->budget()->take('a%', 3, 60, self::NOW);
     }
 
-    public function testProviderCallTakesMinuteThenDay(): void
+    public function testProviderCallTakesUserDayThenMinuteThenDay(): void
     {
-        $this->assertTrue($this->budget()->takeProviderCall(self::NOW));
+        $this->assertTrue($this->budget()->takeProviderCall(7, self::NOW));
+        $this->assertSame(['windowsill_budget_user_7_20834' => '1'], $this->rows('user_7'));
         $this->assertSame(['windowsill_budget_global_m_30000960' => '1'], $this->rows('global_m'));
         $this->assertSame(['windowsill_budget_global_d_20834' => '1'], $this->rows('global_d'));
     }
@@ -164,14 +167,14 @@ class BudgetTest extends Base
     public function testProviderCallRefusedAtMinuteLimit(): void
     {
         $this->plant('windowsill_budget_global_m_30000960', (string) Budget::GLOBAL_MINUTE);
-        $this->assertFalse($this->budget()->takeProviderCall(self::NOW));
+        $this->assertFalse($this->budget()->takeProviderCall(7, self::NOW));
         $this->assertSame([], $this->rows('global_d'), 'the day budget is not spent');
     }
 
     public function testProviderCallRefusedAtDayLimit(): void
     {
         $this->plant('windowsill_budget_global_d_20834', (string) Budget::GLOBAL_DAY);
-        $this->assertFalse($this->budget()->takeProviderCall(self::NOW));
+        $this->assertFalse($this->budget()->takeProviderCall(7, self::NOW));
         $this->assertSame(['windowsill_budget_global_m_30000960' => '1'], $this->rows('global_m'), 'that minute slot is spent');
     }
 
@@ -182,5 +185,68 @@ class BudgetTest extends Base
         foreach ($this->settings()->like('option', 'windowsill_budget_%')->findAllByColumn('option') as $option) {
             $this->assertLessThanOrEqual(100, strlen($option));
         }
+    }
+
+    public function testProviderCallRefusedAtUserDayLimitSpendsNoGlobalBudget(): void
+    {
+        $this->plant('windowsill_budget_user_7_20834', (string) Budget::USER_DAY);
+        $this->assertFalse($this->budget()->takeProviderCall(7, self::NOW));
+        $this->assertSame([], $this->rows('global_m'));
+        $this->assertSame([], $this->rows('global_d'));
+        $this->assertTrue($this->budget()->takeProviderCall(8, self::NOW), 'another user is not affected');
+    }
+
+    /**
+     * Race on a window's first take: our increment misses (no row yet), another request inserts the row,
+     * then our exists() sees it. We retry the increment instead of refusing at 1 of limit.
+     */
+    public function testFirstTakeRaceIsAdmittedWhenTheRowAppearsBeforeExists(): void
+    {
+        $budget = new class($this->container) extends Budget {
+            protected function exists(string $option): bool
+            {
+                $this->db->table(SettingModel::TABLE)->insert(['option' => $option, 'value' => '1', 'changed_by' => 0, 'changed_on' => 0]);
+                return parent::exists($option);
+            }
+        };
+        $this->assertTrue($budget->take('race', 3, 60, self::NOW));
+        $this->assertSame(['windowsill_budget_race_30000960' => '2'], $this->rows('race'));
+    }
+
+    public function testDelayedOldWindowNeverDeletesANewerWindow(): void
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertTrue($this->budget()->take('t', 4, 60, self::NOW + 60));
+        }
+        $this->assertTrue($this->budget()->take('t', 4, 60, self::NOW), 'a straggler from the previous window');
+        $this->assertSame('3', $this->rows('t')['windowsill_budget_t_30000961'] ?? null, 'the newer window survives');
+
+        $this->assertTrue($this->budget()->take('t', 4, 60, self::NOW + 61));
+        $this->assertSame(['windowsill_budget_t_30000961' => '4'], $this->rows('t'));
+        $this->assertFalse($this->budget()->take('t', 4, 60, self::NOW + 62));
+    }
+
+    public function testCleanupFailureDoesNotChangeAdmission(): void
+    {
+        $budget = new class($this->container) extends Budget {
+            protected function removeOlderWindows(string $name, int $window): void
+            {
+                throw new SQLException('cleanup failed');
+            }
+        };
+        $this->assertTrue($budget->take('f', 1, 60, self::NOW));
+        $this->assertFalse($budget->take('f', 1, 60, self::NOW));
+    }
+
+    public function testCleanupOnlyTouchesItsOwnName(): void
+    {
+        $this->assertTrue($this->budget()->take('search_1_2', 3, 60, self::NOW));
+        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW));
+        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW + 60));
+        $this->assertSame(['windowsill_budget_search_1_2_30000960' => '1'], $this->rows('search_1_2'));
+
+        $this->assertTrue($this->budget()->take('search_1_2', 3, 60, self::NOW + 60));
+        $this->assertSame(['windowsill_budget_search_1_30000961' => '1'], $this->rows('search_1'));
+        $this->assertSame(['windowsill_budget_search_1_2_30000961' => '1'], $this->rows('search_1_2'));
     }
 }

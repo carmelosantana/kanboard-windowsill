@@ -2,11 +2,12 @@
 require_once 'tests/units/Base.php';
 
 use KanboardTests\units\Base;
+use Kanboard\Model\SettingModel;
+use Kanboard\Plugin\Windowsill\Model\Budget;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 use Kanboard\Plugin\Windowsill\Model\Throttle;
-use Kanboard\Model\SettingModel;
 use Kanboard\Plugin\Windowsill\Model\WeatherService;
 use Kanboard\Plugin\Windowsill\Plugin;
 use Psr\Log\LoggerInterface;
@@ -425,5 +426,20 @@ class WeatherServiceTest extends Base
         $this->assertSame(15, $vm['retry_after']);
         $this->assertSame('', (string) $this->container['db']->table(SettingModel::TABLE)
             ->eq('option', Throttle::option($this->userId, Throttle::LEASE))->findOneColumn('value'), 'lease released');
+    }
+
+    public function testUserDailyBudgetExhaustedServesStaleWithoutFetching(): void
+    {
+        $this->client(0);
+        $this->writeCache($this->saveBerlin(), self::NOW - 7200);
+        $this->assertTrue($this->container['db']->table(SettingModel::TABLE)->insert([
+            'option' => 'windowsill_budget_user_'.$this->userId.'_'.intdiv(self::NOW, 86400),
+            'value' => (string) Budget::USER_DAY, 'changed_by' => 0, 'changed_on' => 0,
+        ]));
+
+        $vm = $this->service()->refresh($this->userId, self::NOW);
+        $this->assertSame('stale', $vm['state']);
+        $this->assertSame(0, $this->container['windowsillCache']->failedAt($this->userId), 'not marked failed');
+        $this->assertNotNull($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW), 'lease released');
     }
 }

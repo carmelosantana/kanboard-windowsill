@@ -90,8 +90,8 @@ class WeatherService extends Base
             return self::pending($location, $entry, $age, $now, max(self::RETRY_MIN, min(self::RETRY_MAX, $wait)));
         }
 
-        if (!$this->windowsillBudget->takeProviderCall($now)) {
-            // The server-wide provider budget is spent: not a provider failure, so no back-off stamp.
+        if (!$this->windowsillBudget->takeProviderCall($userId, $now)) {
+            // The user's daily or the server-wide provider budget is spent: not a provider failure, so no back-off stamp.
             $this->windowsillThrottle->releaseRefresh($userId, $lease);
             return self::fallback($location, $entry, $age, $now);
         }

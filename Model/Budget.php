@@ -11,17 +11,19 @@ use PicoDb\SQLException;
  *
  * One row per name and window in core's settings table: option `windowsill_budget_<name>_<floor(now / window)>`,
  * value a plain decimal count. Admission is a single conditional UPDATE (`count < limit`) that must change exactly
- * one row, so parallel requests can never pass more than the limit. Older windows of a name are deleted after
- * each successful take.
+ * one row, so parallel requests can never pass more than the limit. After a successful take, the name's windows
+ * strictly older than the caller's are deleted (best effort); a straggler from an older window never deletes a
+ * newer one.
  *
- * The server's Open-Meteo quota is shared per IP (600 a minute, 10,000 a day); GLOBAL_MINUTE and GLOBAL_DAY stay
- * well under it for every search and forecast fetch combined.
+ * The server's Open-Meteo quota is shared per IP (600 a minute, 10,000 a day). Every search and forecast fetch
+ * takes takeProviderCall(): USER_DAY per user, then GLOBAL_MINUTE and GLOBAL_DAY for the whole server.
  */
 class Budget extends Base
 {
     public const GLOBAL_MINUTE = 300;
     public const GLOBAL_DAY = 8000;
     public const USER_SEARCH = 10;
+    public const USER_DAY = 200;
 
     /** Option prefix; the full option is at most 18 + 40 + 1 + 19 = 78 characters (the column is VARCHAR(100)). */
     private const PREFIX = 'windowsill_budget_';
@@ -38,29 +40,39 @@ class Budget extends Base
         if ($limit < 1 || $this->db->getConnection()->inTransaction()) {
             return false;
         }
-        $option = self::PREFIX.$name.'_'.intdiv($now, $window);
+        $current = intdiv($now, $window);
+        $option = self::PREFIX.$name.'_'.$current;
 
         try {
+            // exists() first, so a refusal at the limit never attempts an insert (Postgres logs duplicate keys);
+            // the second increment covers a row another request created after our first one missed.
             $taken = $this->increment($option, $limit)
-                || (!$this->exists($option) && ($this->insertFirst($option, $now) || $this->increment($option, $limit)));
+                || ($this->exists($option)
+                    ? $this->increment($option, $limit)
+                    : ($this->insertFirst($option, $now) || $this->increment($option, $limit)));
         } catch (SQLException $e) {
             // A value an admin made non-numeric: MySQL (strict) and Postgres reject the cast. Refuse this window.
             return false;
         }
 
         if ($taken) {
-            $this->removeOlderWindows($name, $option);
+            try {
+                $this->removeOlderWindows($name, $current);
+            } catch (SQLException $e) {
+                // Housekeeping only: the take stands.
+            }
         }
         return $taken;
     }
 
     /**
-     * One provider call against the server-wide minute and day budgets. When the day refuses after the minute
-     * took, that minute slot stays spent.
+     * One provider call: the user's daily budget, then the server-wide minute and day budgets. A budget that
+     * refuses after an earlier one took leaves the earlier slot spent.
      */
-    public function takeProviderCall(int $now): bool
+    public function takeProviderCall(int $userId, int $now): bool
     {
-        return $this->take('global_m', self::GLOBAL_MINUTE, 60, $now)
+        return $this->take('user_'.$userId, self::USER_DAY, 86400, $now)
+            && $this->take('global_m', self::GLOBAL_MINUTE, 60, $now)
             && $this->take('global_d', self::GLOBAL_DAY, 86400, $now);
     }
 
@@ -81,7 +93,7 @@ class Budget extends Base
         return $statement !== false && $statement->rowCount() === 1;
     }
 
-    private function exists(string $option): bool
+    protected function exists(string $option): bool
     {
         return $this->db->table(SettingModel::TABLE)->eq('option', $option)->exists();
     }
@@ -100,15 +112,23 @@ class Budget extends Base
         ]);
     }
 
-    private function removeOlderWindows(string $name, string $current): void
+    /**
+     * Deletes this name's windows strictly older than $window. Only options of the exact form
+     * `<prefix><name>_<digits>` count, so `search_1` never touches `search_1_2` (or `search_10`).
+     */
+    protected function removeOlderWindows(string $name, int $window): void
     {
-        // '_' is a LIKE wildcard: escaped, so search_1 never matches search_10's rows.
-        $pattern = str_replace('_', '!_', self::PREFIX.$name.'_').'%';
-        $this->db->execute(
-            'DELETE FROM '.$this->db->escapeIdentifier(SettingModel::TABLE)
-            .' WHERE '.$this->db->escapeIdentifier('option')." LIKE ? ESCAPE '!'"
-            .' AND '.$this->db->escapeIdentifier('option').' <> ?',
-            [$pattern, $current]
-        );
+        $prefix = self::PREFIX.$name.'_';
+        // LIKE only narrows the rows ('_' is a wildcard there, so it may match more); the regex below decides.
+        $options = $this->db->table(SettingModel::TABLE)->like('option', $prefix.'%')->findAllByColumn('option');
+        $older = [];
+        foreach ($options as $option) {
+            if (preg_match('/^'.preg_quote($prefix, '/').'(\d{1,19})$/D', $option, $m) && (int) $m[1] < $window) {
+                $older[] = $option;
+            }
+        }
+        if ($older !== []) {
+            $this->db->table(SettingModel::TABLE)->in('option', $older)->remove();
+        }
     }
 }

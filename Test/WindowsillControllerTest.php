@@ -427,4 +427,36 @@ class WindowsillControllerTest extends Base
         $this->assertRedirectedToSettings();
         $this->assertSame('Weather lookups are paused for now. Try again later.', $this->container['flash']->getMessage('failure'));
     }
+
+    public function testInvalidQueriesSpendNoBudget(): void
+    {
+        $client = $this->createMock(OpenMeteoClient::class);
+        $client->expects($this->once())->method('searchPlaces')->willReturn([]);
+        $this->container['windowsillClient'] = $client;
+
+        for ($i = 0; $i < 20; $i++) {
+            $post = [['q' => 'x'], ['q' => ' '], ['q' => str_repeat('a', 101)], ['q' => ['Paris']]][$i % 4];
+            $this->assertSame('', $this->call('search', $post), "invalid $i");
+            $this->assertSame('Enter 2 to 100 characters.', $this->container['flash']->getMessage('failure'));
+        }
+        $this->assertSame(0, $this->container['db']->table(\Kanboard\Model\SettingModel::TABLE)->like('option', 'windowsill_budget_%')->count());
+
+        $this->call('search', ['q' => 'Springfield']);
+        $this->assertNull($this->redirect, 'a valid search is still admitted');
+    }
+
+    public function testUserDailyBudgetRefusesSearch(): void
+    {
+        $this->clientNeverCalled();
+        foreach ([0, 86400] as $ahead) {
+            $this->assertTrue($this->container['db']->table(\Kanboard\Model\SettingModel::TABLE)->insert([
+                'option' => 'windowsill_budget_user_'.$this->alice.'_'.intdiv(time() + $ahead, 86400), 'value' => '200',
+                'changed_by' => 0, 'changed_on' => 0,
+            ]));
+        }
+
+        $this->assertSame('', $this->call('search', ['q' => 'Springfield']));
+        $this->assertRedirectedToSettings();
+        $this->assertSame('Weather lookups are paused for now. Try again later.', $this->container['flash']->getMessage('failure'));
+    }
 }

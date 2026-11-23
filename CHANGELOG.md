@@ -17,5 +17,7 @@
   fetches at least 15 seconds apart; removing a location or switching units does not reset them.
 - Request budgets are counted atomically by the database, so parallel requests cannot pass them, and the
   server as a whole makes at most 300 Open-Meteo calls a minute and 8,000 a day.
+- Each user makes at most 200 Open-Meteo calls a day, searches and forecasts together; an invalid search
+  query spends no budget.
 - Privacy: coordinates are rounded to about 1 km before they are stored or sent, and coordinates and
   place queries are never written to Kanboard's logs.
