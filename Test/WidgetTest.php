@@ -77,6 +77,7 @@ class WidgetTest extends Base
             'fetched_at' => $withForecast ? ($aged ? $now - 3600 : $now - 60) : null,
             'aged' => $aged,
             'now' => $now,
+            'retry_after' => $overrides['retry_after'] ?? 0,
         ];
     }
 
@@ -179,6 +180,20 @@ class WidgetTest extends Base
         $this->assertStringNotContainsString('as of', $html);
     }
 
+    public function testPendingCarriesRetryAfterWhenThrottled(): void
+    {
+        $url = '/?controller=WindowsillController&action=widget&plugin=Windowsill&csrf_token=abc';
+        $html = $this->render(self::vm('pending', false, ['retry_after' => 5]), $url);
+
+        $this->assertStringContainsString('data-windowsill-refresh="'.htmlspecialchars($url, ENT_QUOTES, 'UTF-8').'" data-windowsill-retry-after="5"', $html);
+    }
+
+    public function testPendingWithoutRetryAfterHasNoAttribute(): void
+    {
+        $this->assertStringNotContainsString('data-windowsill-retry-after', $this->render(self::vm('pending', false)));
+        $this->assertStringNotContainsString('data-windowsill-retry-after', $this->render(self::vm('fresh', true, ['retry_after' => 5])));
+    }
+
     public function testUnset(): void
     {
         $html = $this->render(self::vm('unset', false));
@@ -256,6 +271,22 @@ class WidgetTest extends Base
         $this->assertStringStartsWith('<section class="windowsill" data-windowsill-state="fresh"', trim($html));
         $this->assertStringContainsString('36°F', $html);
         $this->assertStringNotContainsString('data-windowsill-refresh', $html);
+    }
+
+    public function testThrottledWidgetActionCarriesRefreshUrlAndRetryAfter(): void
+    {
+        $this->container['windowsillLocation']->save($this->alice, self::SPRINGFIELD);
+        $client = $this->createMock(OpenMeteoClient::class);
+        $client->expects($this->never())->method('forecast');
+        $this->container['windowsillClient'] = $client;
+        $this->container['windowsillThrottle']->markFetch($this->alice, time());
+
+        $html = $this->call(['csrf_token' => $this->container['token']->getReusableCSRFToken()]);
+
+        $prefix = htmlspecialchars($this->container['helper']->url->href('WindowsillController', 'widget', ['plugin' => 'Windowsill']), ENT_QUOTES, 'UTF-8', false);
+        $this->assertSame(1, preg_match('/data-windowsill-state="pending" data-windowsill-refresh="'.preg_quote($prefix, '/').'&amp;csrf_token=([0-9a-f]+)" data-windowsill-retry-after="(\d+)"/', $html, $m), $html);
+        $this->assertTrue($this->container['token']->validateReusableCSRFToken($m[1]));
+        $this->assertGreaterThanOrEqual(2, (int) $m[2]);
     }
 
     public function testHookShowsOnlyOwnDashboard(): void

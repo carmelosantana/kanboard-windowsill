@@ -52,8 +52,13 @@ function fakeDoc(elements, fragments = {}) {
   };
 }
 
-function load(doc) {
-  const win = { fetch() { throw new Error('auto refresh must use the injected fetch in tests'); }, location: doc.location };
+function load(doc, extra = {}) {
+  const win = {
+    fetch() { throw new Error('auto refresh must use the injected fetch in tests'); },
+    setTimeout() { throw new Error('no timer expected'); },
+    location: doc.location,
+    ...extra,
+  };
   new Function('window', 'document', src)(win, doc);
   return win.KBWindowsill;
 }
@@ -143,3 +148,65 @@ for (const [name, result] of Object.entries(failures)) {
     assert.equal(widget.text, 'Weather is unavailable right now.');
   });
 }
+
+// A fake setTimeout that records timers; the test fires them by hand.
+function fakeTimers() {
+  const timers = [];
+  const setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  return { timers, setTimeout };
+}
+
+const throttled = (n) => `<section class="windowsill" data-windowsill-state="pending" data-windowsill-retry-after="2">${n}</section>`;
+const throttledEl = (url) =>
+  el({ attrs: { 'data-windowsill-state': 'pending', 'data-windowsill-refresh': url, 'data-windowsill-retry-after': '2' }, live: false });
+
+test('a throttled answer schedules exactly one retry after retry-after seconds', async () => {
+  const widget = pending();
+  const next = throttledEl('/?controller=WindowsillController&action=widget&plugin=Windowsill&csrf_token=t');
+  const fresh = el({ attrs: { 'data-windowsill-state': 'fresh' }, live: false });
+  const doc = fakeDoc([widget], { [throttled(1)]: [next], [FRESH]: [fresh] });
+  const { timers, setTimeout } = fakeTimers();
+  const bodies = [throttled(1), FRESH];
+  const fetchFn = recorder(() => Promise.resolve(response(bodies.shift())));
+
+  await load(doc, { setTimeout }).refreshAll(doc, fetchFn);
+
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].ms, 2000);
+  assert.deepEqual(doc.parent.replaced, [[next, widget]]);
+
+  await timers[0].fn();
+  assert.equal(fetchFn.calls.length, 2);
+  assert.deepEqual(doc.parent.replaced[1], [fresh, next]);
+  assert.equal(timers.length, 1, 'a fresh answer schedules nothing');
+});
+
+test('after two retries a third throttled answer is left alone', async () => {
+  const widget = pending();
+  const url = '/?controller=WindowsillController&action=widget&plugin=Windowsill&csrf_token=t';
+  const els = [throttledEl(url), throttledEl(url), throttledEl(url)];
+  const doc = fakeDoc([widget], { [throttled(1)]: [els[0]], [throttled(2)]: [els[1]], [throttled(3)]: [els[2]] });
+  const { timers, setTimeout } = fakeTimers();
+  const bodies = [throttled(1), throttled(2), throttled(3)];
+  const fetchFn = recorder(() => Promise.resolve(response(bodies.shift())));
+
+  await load(doc, { setTimeout }).refreshAll(doc, fetchFn);
+  assert.equal(timers.length, 1);
+  await timers[0].fn();
+  assert.equal(timers.length, 2);
+  await timers[1].fn();
+
+  assert.equal(fetchFn.calls.length, 3);
+  assert.equal(timers.length, 2, 'no third retry');
+  assert.deepEqual(doc.parent.replaced[2], [els[2], els[1]]);
+});
+
+test('a pending answer without retry-after schedules nothing', async () => {
+  const widget = pending();
+  const body = '<section class="windowsill" data-windowsill-state="pending">x</section>';
+  const doc = fakeDoc([widget], { [body]: [el({ attrs: { 'data-windowsill-state': 'pending', 'data-windowsill-refresh': '/x' }, live: false })] });
+
+  await load(doc).refreshAll(doc, recorder(response(body)));
+
+  assert.equal(doc.parent.replaced.length, 1);
+});

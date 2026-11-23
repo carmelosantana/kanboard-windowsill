@@ -7,9 +7,11 @@ use Kanboard\Core\Base;
  * Turns the stored location, the forecast cache and the provider into the widget's view model.
  *
  * View model: ['state' => 'unset'|'fresh'|'stale'|'pending'|'unavailable', 'location' => ?Location,
- *              'forecast' => ?Forecast, 'fetched_at' => ?int, 'aged' => bool, 'now' => int]
+ *              'forecast' => ?Forecast, 'fetched_at' => ?int, 'aged' => bool, 'now' => int, 'retry_after' => int]
  *
- * cached() never calls the provider (page render); refresh() may, and never answers 'pending'.
+ * cached() never calls the provider (page render); refresh() may. refresh() answers 'pending' only when the
+ * user's Throttle holds it back (another refresh in flight, or the last fetch under MIN_FETCH_INTERVAL ago),
+ * and then with retry_after > 0 seconds; retry_after is 0 otherwise.
  * After a failure (or a result that could not be stored) the provider is not asked again for BACKOFF seconds.
  */
 class WeatherService extends Base
@@ -21,6 +23,10 @@ class WeatherService extends Base
     /** Clock skew tolerated, in seconds: a cache or failure stamped further ahead than this is ignored. */
     private const SKEW = 60;
 
+    /** Bounds of retry_after, in seconds, when a refresh is held back. */
+    private const RETRY_MIN = 2;
+    private const RETRY_MAX = 15;
+
     public function cached(int $userId, ?int $now = null): array
     {
         return $this->resolve($userId, $now ?? time(), false);
@@ -29,6 +35,17 @@ class WeatherService extends Base
     public function refresh(int $userId, ?int $now = null): array
     {
         return $this->resolve($userId, $now ?? time(), true);
+    }
+
+    /**
+     * The widget's own refresh URL (GET, reusable CSRF token): rendered on the dashboard and on a held-back refresh.
+     */
+    public function refreshUrl(): string
+    {
+        return $this->helper->url->href('WindowsillController', 'widget', [
+            'plugin' => 'Windowsill',
+            'csrf_token' => $this->token->getReusableCSRFToken(),
+        ]);
     }
 
     private function resolve(int $userId, int $now, bool $fetch): array
@@ -56,16 +73,22 @@ class WeatherService extends Base
         }
 
         if (!$fetch) {
-            return $entry !== null && $age < self::STALE_MAX
-                ? self::view('pending', $location, $entry['forecast'], $entry['fetched_at'], $now)
-                : self::view('pending', $location, null, null, $now);
+            return self::pending($location, $entry, $age, $now, 0);
+        }
+
+        $wait = $this->windowsillThrottle->fetchWaitSeconds($userId, $now);
+        if ($wait > 0 || !$this->windowsillThrottle->claimRefresh($userId, $now)) {
+            return self::pending($location, $entry, $age, $now, max(self::RETRY_MIN, min(self::RETRY_MAX, $wait)));
         }
 
         try {
+            $this->windowsillThrottle->markFetch($userId, $now);
             $forecast = $this->windowsillClient->forecast($location['lat'], $location['lon'], $location['units']);
         } catch (ProviderException) {
             $this->windowsillCache->markFailed($userId, $now);
             return self::fallback($location, $entry, $age, $now);
+        } finally {
+            $this->windowsillThrottle->releaseRefresh($userId);
         }
 
         if ($this->windowsillCache->write($userId, $forecast, $now, ForecastCache::keyFor($location))) {
@@ -88,7 +111,17 @@ class WeatherService extends Base
             : self::view('unavailable', $location, null, null, $now);
     }
 
-    private static function view(string $state, ?array $location, ?array $forecast, ?int $fetchedAt, int $now): array
+    /**
+     * Waiting for a fetch: the cached forecast while it is under STALE_MAX old, else a placeholder.
+     */
+    private static function pending(array $location, ?array $entry, ?int $age, int $now, int $retryAfter): array
+    {
+        return $entry !== null && $age < self::STALE_MAX
+            ? self::view('pending', $location, $entry['forecast'], $entry['fetched_at'], $now, $retryAfter)
+            : self::view('pending', $location, null, null, $now, $retryAfter);
+    }
+
+    private static function view(string $state, ?array $location, ?array $forecast, ?int $fetchedAt, int $now, int $retryAfter = 0): array
     {
         return [
             'state' => $state,
@@ -97,6 +130,7 @@ class WeatherService extends Base
             'fetched_at' => $fetchedAt,
             'aged' => $forecast !== null && $now - $fetchedAt >= self::FRESH,
             'now' => $now,
+            'retry_after' => $retryAfter,
         ];
     }
 }

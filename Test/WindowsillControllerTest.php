@@ -394,4 +394,20 @@ class WindowsillControllerTest extends Base
             );
         }
     }
+
+    public function testEleventhSearchInAMinuteIsRefused(): void
+    {
+        $client = $this->createMock(OpenMeteoClient::class);
+        $client->expects($this->exactly(10))->method('searchPlaces')->willReturn([]);
+        $this->container['windowsillClient'] = $client;
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->call('search', ['q' => 'Springfield']);
+            $this->assertNull($this->redirect, "search $i");
+        }
+
+        $this->assertSame('', $this->call('search', ['q' => 'Springfield']));
+        $this->assertRedirectedToSettings();
+        $this->assertSame('Too many searches. Try again in a minute.', $this->container['flash']->getMessage('failure'));
+    }
 }

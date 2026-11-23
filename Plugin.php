@@ -6,6 +6,7 @@ use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\HttpsFetcher;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
+use Kanboard\Plugin\Windowsill\Model\Throttle;
 use Kanboard\Plugin\Windowsill\Model\WeatherService;
 
 class Plugin extends Base
@@ -28,6 +29,9 @@ class Plugin extends Base
         $this->container['windowsillService'] = function ($c) {
             return new WeatherService($c);
         };
+        $this->container['windowsillThrottle'] = function ($c) {
+            return new Throttle($c);
+        };
 
         foreach (['settings', 'search', 'save', 'units', 'remove', 'widget'] as $action) {
             $this->route->addRoute('windowsill/'.$action, 'WindowsillController', $action, 'Windowsill');
@@ -38,10 +42,7 @@ class Plugin extends Base
             // Only on your own dashboard: an admin viewing someone else's never sees their location.
             'callable' => fn (array $user) => [
                 'windowsill' => $user['id'] == $this->userSession->getId() ? $this->windowsillService->cached((int) $user['id']) : null,
-                'windowsill_refresh_url' => $this->helper->url->href('WindowsillController', 'widget', [
-                    'plugin' => 'Windowsill',
-                    'csrf_token' => $this->token->getReusableCSRFToken(),
-                ]),
+                'windowsill_refresh_url' => $this->windowsillService->refreshUrl(),
             ],
         ]);
         $this->hook->on('template:layout:css', ['template' => 'plugins/Windowsill/Assets/css/windowsill.css']);

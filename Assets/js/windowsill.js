@@ -4,6 +4,9 @@
 
     var UNAVAILABLE = 'Weather is unavailable right now.';
     var FAILED = "Couldn't refresh.";
+    // A held-back refresh (data-windowsill-retry-after) is retried at most this many times per page load.
+    var MAX_RETRIES = 2;
+    var retries = 0;
 
     // Parse the response in a detached <template>; accept exactly one top-level section.windowsill.
     function parseFragment(doc, text) {
@@ -58,10 +61,20 @@
                     throw new Error('Unexpected refresh response');
                 }
                 el.parentNode.replaceChild(fresh, el);
+                scheduleRetry(doc, fresh, fetchFn);
             })
             .catch(function () {
                 fail(doc, el);
             });
+    }
+
+    function scheduleRetry(doc, el, fetchFn) {
+        var seconds = parseInt(el.getAttribute('data-windowsill-retry-after'), 10);
+        if (el.getAttribute('data-windowsill-refresh') === null || !(seconds >= 1 && seconds <= 60) || retries >= MAX_RETRIES) {
+            return;
+        }
+        retries++;
+        window.setTimeout(function () { return refreshOne(doc, el, fetchFn); }, seconds * 1000);
     }
 
     function refreshAll(doc, fetchFn) {

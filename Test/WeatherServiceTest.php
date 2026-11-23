@@ -79,7 +79,7 @@ class WeatherServiceTest extends Base
         foreach ([$this->service()->cached($this->userId, self::NOW), $this->service()->refresh($this->userId, self::NOW)] as $vm) {
             $this->assertSame([
                 'state' => 'unset', 'location' => null, 'forecast' => null,
-                'fetched_at' => null, 'aged' => false, 'now' => self::NOW,
+                'fetched_at' => null, 'aged' => false, 'now' => self::NOW, 'retry_after' => 0,
             ], $vm);
         }
     }
@@ -272,10 +272,10 @@ class WeatherServiceTest extends Base
         $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW)['state']);
 
         $this->container['windowsillLocation']->save($this->userId, self::PARIS);
-        $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW + 1)['state']);
+        $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW + 15)['state']);
 
         $this->container['windowsillLocation']->setUnits($this->userId, 'us');
-        $this->assertSame('fresh', $this->service()->refresh($this->userId, self::NOW + 2)['state']);
+        $this->assertSame('fresh', $this->service()->refresh($this->userId, self::NOW + 30)['state']);
     }
 
     public function testUnstorableResultBacksOff(): void
@@ -301,5 +301,74 @@ class WeatherServiceTest extends Base
 
         $after = $this->service()->cached($this->userId, self::NOW + 1);
         $this->assertContains($after['state'], ['unavailable', 'stale']);
+    }
+
+    public function testRefreshIsPendingWhileAnotherRefreshHoldsTheLease(): void
+    {
+        $this->client(0);
+        $this->writeCache($this->saveBerlin(), self::NOW - 7200);
+        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
+
+        $vm = $this->service()->refresh($this->userId, self::NOW);
+        $this->assertSame('pending', $vm['state']);
+        $this->assertGreaterThanOrEqual(2, $vm['retry_after']);
+        $this->assertLessThanOrEqual(15, $vm['retry_after']);
+        $this->assertEquals(self::forecast(), $vm['forecast'], 'the usable cached forecast stays on screen');
+        $this->assertSame(self::NOW - 7200, $vm['fetched_at']);
+    }
+
+    public function testUnitToggleWithinFetchSpacingIsPending(): void
+    {
+        $this->client(1);
+        $this->saveBerlin();
+        $this->assertSame('fresh', $this->service()->refresh($this->userId, self::NOW)['state']);
+
+        $this->container['windowsillLocation']->setUnits($this->userId, 'us');
+        $vm = $this->service()->refresh($this->userId, self::NOW + 10);
+        $this->assertSame('pending', $vm['state']);
+        $this->assertSame(5, $vm['retry_after']);
+        $this->assertNull($vm['forecast'], 'the cache is for the other units');
+    }
+
+    public function testFetchAllowedAgainAfterSpacing(): void
+    {
+        $this->client(2);
+        $this->saveBerlin();
+        $this->assertSame('fresh', $this->service()->refresh($this->userId, self::NOW)['state']);
+
+        $this->container['windowsillLocation']->setUnits($this->userId, 'us');
+        $vm = $this->service()->refresh($this->userId, self::NOW + 15);
+        $this->assertSame('fresh', $vm['state']);
+        $this->assertSame(0, $vm['retry_after']);
+    }
+
+    public function testRetryAfterHasAFloorOfTwoSeconds(): void
+    {
+        $this->client(0);
+        $this->saveBerlin();
+        $this->container['windowsillThrottle']->markFetch($this->userId, self::NOW - 14);
+
+        $this->assertSame(2, $this->service()->refresh($this->userId, self::NOW)['retry_after']);
+    }
+
+    public function testLeaseIsReleasedAfterProviderFailure(): void
+    {
+        $this->client(1, null, true);
+        $this->saveBerlin();
+
+        $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW)['state']);
+        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW + 1));
+    }
+
+    public function testCachedNeverThrottlesOrClaims(): void
+    {
+        $this->client(0);
+        $this->writeCache($this->saveBerlin(), self::NOW - 1801);
+        $this->container['windowsillThrottle']->markFetch($this->userId, self::NOW);
+
+        $vm = $this->service()->cached($this->userId, self::NOW);
+        $this->assertSame('pending', $vm['state']);
+        $this->assertSame(0, $vm['retry_after']);
+        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
     }
 }

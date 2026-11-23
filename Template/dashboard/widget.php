@@ -18,7 +18,7 @@ if ($forecast !== null) {
     $now = WeatherCodes::describe($forecast['current']['code'], $forecast['current']['is_day']);
 }
 ?>
-<section class="windowsill" data-windowsill-state="<?= $this->text->e($state) ?>"<?php if ($state === 'pending'): ?> data-windowsill-refresh="<?= $this->text->e($windowsill_refresh_url ?? '') ?>"<?php endif ?>>
+<section class="windowsill" data-windowsill-state="<?= $this->text->e($state) ?>"<?php if ($state === 'pending'): ?> data-windowsill-refresh="<?= $this->text->e($windowsill_refresh_url ?? '') ?>"<?php if ($vm['retry_after'] > 0): ?> data-windowsill-retry-after="<?= (int) $vm['retry_after'] ?>"<?php endif ?><?php endif ?>>
 <?php if ($state === 'unset'): ?>
     <p class="windowsill-message"><?= $this->url->link(t('Set your location to see the weather.'), 'WindowsillController', 'settings', ['plugin' => 'Windowsill']) ?></p>
 <?php elseif ($forecast !== null): ?>

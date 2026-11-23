@@ -13,5 +13,7 @@
   contacts the weather provider.
 - The server fetches only from the two Open-Meteo hosts over HTTPS, never follows a redirect, and
   bounds each request to 5 seconds and 64 KB.
+- Per-user request limits: 10 place searches a minute, one forecast refresh in flight, and forecast
+  fetches at least 15 seconds apart; removing a location or switching units does not reset them.
 - Privacy: coordinates are rounded to about 1 km before they are stored or sent, and coordinates and
   place queries are never written to Kanboard's logs.

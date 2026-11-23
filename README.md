@@ -36,8 +36,15 @@ proxy and certificate settings (`HTTP_PROXY_*`, `HTTP_VERIFY_SSL_CERTIFICATE`) s
 
 ## Limits
 
-Place search is not rate-limited in 0.1.0. Every search and forecast fetch shares the Kanboard server's
-Open-Meteo quota, which is counted per IP address (600 calls a minute, 10,000 a day).
+Every search and forecast fetch shares the Kanboard server's Open-Meteo quota, which is counted per IP
+address (600 calls a minute, 10,000 a day). To keep one user from spending it, each user gets:
+
+- at most 10 place searches a minute;
+- one forecast refresh in flight at a time;
+- forecast fetches at least 15 seconds apart, however often the location or units change.
+
+A held-back refresh shows the cached forecast (or "Loading weather…") and the widget tries again up to
+twice on that page load.
 
 ## Requirements
 

@@ -21,6 +21,11 @@ class WindowsillController extends BaseController
     public function search(): void
     {
         $this->checkCSRFForm();
+        if (!$this->windowsillThrottle->allowSearch($this->userSession->getId(), time())) {
+            $this->flash->failure(t('Too many searches. Try again in a minute.'));
+            $this->redirectToSettings();
+            return;
+        }
         $values = $this->request->getValues();
         $query = $values['q'] ?? null;
 
@@ -103,6 +108,7 @@ class WindowsillController extends BaseController
         $this->checkReusableGETCSRFParam();
         $this->response->html($this->template->render('Windowsill:dashboard/widget', [
             'windowsill' => $this->windowsillService->refresh($this->userSession->getId()),
+            'windowsill_refresh_url' => $this->windowsillService->refreshUrl(),
         ]));
     }
 
