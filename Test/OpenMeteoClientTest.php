@@ -8,6 +8,7 @@ use Kanboard\Core\Http\InvalidStatusException;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 use Psr\Log\LoggerInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class OpenMeteoClientTest extends Base
 {
@@ -151,6 +152,7 @@ class OpenMeteoClientTest extends Base
     /**
      * @dataProvider forecastFailures
      */
+    #[DataProvider('forecastFailures')]
     public function testForecastFailuresThrowAndLogOnce(string|\Throwable $result): void
     {
         $this->transport($result);
@@ -225,6 +227,7 @@ class OpenMeteoClientTest extends Base
     /**
      * @dataProvider badQueries
      */
+    #[DataProvider('badQueries')]
     public function testSearchRejectsBadQuery(string $query): void
     {
         $this->transport('', false);
@@ -244,6 +247,7 @@ class OpenMeteoClientTest extends Base
     /**
      * @dataProvider acceptedQueries
      */
+    #[DataProvider('acceptedQueries')]
     public function testSearchAcceptsBoundaryQueries(string $query): void
     {
         $this->transport(self::fixture('geocode-empty.json'));
@@ -278,6 +282,7 @@ class OpenMeteoClientTest extends Base
     /**
      * @dataProvider searchFailures
      */
+    #[DataProvider('searchFailures')]
     public function testSearchFailuresThrowAndLogOnce(string|\Throwable $result): void
     {
         $this->transport($result);

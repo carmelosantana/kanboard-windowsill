@@ -3,6 +3,7 @@ require_once 'tests/units/Base.php';
 
 use KanboardTests\units\Base;
 use Kanboard\Plugin\Windowsill\Model\ForecastShape;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class ForecastShapeTest extends Base
 {
@@ -85,6 +86,7 @@ class ForecastShapeTest extends Base
     /**
      * @dataProvider invalidRows
      */
+    #[DataProvider('invalidRows')]
     public function testInvalidFails(array $f): void
     {
         $this->assertFalse(ForecastShape::check($f));

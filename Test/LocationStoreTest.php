@@ -4,6 +4,7 @@ require_once 'tests/units/Base.php';
 use KanboardTests\units\Base;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
 use Kanboard\Plugin\Windowsill\Plugin;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class LocationStoreTest extends Base
 {
@@ -91,6 +92,7 @@ class LocationStoreTest extends Base
     /**
      * @dataProvider invalidProvider
      */
+    #[DataProvider('invalidProvider')]
     public function testRejectsOutOfRange(array $place, ?string $units): void
     {
         $id = $this->user('alice');
@@ -202,6 +204,7 @@ class LocationStoreTest extends Base
      *
      * @dataProvider badStoredLabel
      */
+    #[DataProvider('badStoredLabel')]
     public function testGetIgnoresBadStoredLabel(string $label): void
     {
         $id = $this->user('alice');

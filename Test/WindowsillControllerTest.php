@@ -10,6 +10,7 @@ use Kanboard\Plugin\Windowsill\Controller\WindowsillController;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 use Kanboard\Plugin\Windowsill\Plugin;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class WindowsillControllerTest extends Base
 {
@@ -220,6 +221,7 @@ class WindowsillControllerTest extends Base
     /**
      * @dataProvider postActions
      */
+    #[DataProvider('postActions')]
     public function testPostsWithoutCsrfAreRejected(string $action, array $post): void
     {
         $this->seedLocation($this->alice);
@@ -348,6 +350,7 @@ class WindowsillControllerTest extends Base
     /**
      * @dataProvider malformedPosts
      */
+    #[DataProvider('malformedPosts')]
     public function testMalformedPostsDoNotCrash(string $action, array $post, string $flash): void
     {
         $this->clientNeverCalled();

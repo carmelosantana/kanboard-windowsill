@@ -3,6 +3,7 @@ require_once 'tests/units/Base.php';
 
 use KanboardTests\units\Base;
 use Kanboard\Plugin\Windowsill\Model\WeatherCodes;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class WeatherCodesTest extends Base
 {
@@ -33,6 +34,7 @@ class WeatherCodesTest extends Base
     }
 
     /** @dataProvider labelProvider */
+    #[DataProvider('labelProvider')]
     public function testLabels(int $code, string $label): void
     {
         $described = WeatherCodes::describe($code);

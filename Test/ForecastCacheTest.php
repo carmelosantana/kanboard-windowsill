@@ -6,6 +6,7 @@ use Kanboard\Core\Http\Client;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Plugin;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class ForecastCacheTest extends Base
 {
@@ -182,6 +183,7 @@ class ForecastCacheTest extends Base
     /**
      * @dataProvider garbage
      */
+    #[DataProvider('garbage')]
     public function testDecodeRejectsGarbage(string $raw): void
     {
         $this->assertNull($this->cache()->decode($raw));
@@ -199,6 +201,7 @@ class ForecastCacheTest extends Base
     /**
      * @dataProvider oversized
      */
+    #[DataProvider('oversized')]
     public function testDecodeRejectsOversizedInput(string $raw): void
     {
         $this->assertGreaterThan(ForecastCache::MAX_LEN, strlen($raw));
