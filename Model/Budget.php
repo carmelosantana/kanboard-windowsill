@@ -14,8 +14,9 @@ use PicoDb\SQLException;
  * one row, so parallel requests can never pass more than the limit. After a successful take, the name's windows
  * that ended at least RETENTION seconds before the caller's window began are deleted (best effort); the
  * immediately preceding window is always kept. A request would have to stall for over an hour between reading
- * the clock and its insert to recreate a deleted window, far beyond every engine's default lock wait (SQLite
- * 30 s busy timeout, InnoDB 50 s), and a straggler never deletes a newer window. Minute budgets keep up to 61
+ * the clock and its insert to recreate a deleted window: far beyond SQLite's 30 s busy timeout and InnoDB's 50 s
+ * lock wait; Postgres sets no default bound, but a user cannot hold the locks involved, so only a database
+ * incident could do it. A straggler never deletes a newer window. Minute budgets keep up to 61
  * rows per name, day budgets two.
  *
  * The server's Open-Meteo quota is shared per IP (600 a minute, 10,000 a day). Every search and forecast fetch
