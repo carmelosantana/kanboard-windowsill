@@ -2,33 +2,42 @@
 namespace Kanboard\Plugin\Windowsill\Model;
 
 use Kanboard\Core\Base;
+use Kanboard\Model\SettingModel;
 
 /**
- * Per-user request limits, kept in user_has_metadata as plain decimal strings and compared in PHP.
+ * Per-user request limits, kept in core's settings table as plain decimal strings and compared in PHP.
  *
- * - Refresh lease (windowsill_lease = expiry): one provider fetch in flight per user. Claimed by a bare
- *   INSERT, so the UNIQUE(user_id, name) key decides between racing requests on every database.
- * - Fetch spacing (windowsill_last_fetch): forecast fetches at least MIN_FETCH_INTERVAL seconds apart.
- * - Search window (windowsill_search = "<windowStart>:<count>"): SEARCH_MAX place searches per SEARCH_WINDOW.
+ * Not in user_has_metadata: core's user Integrations form saves any posted key there, so a user could
+ * reset their own limits. Only admins write settings through core's forms. Rows are read and written
+ * directly (not through ConfigModel), so no per-request config cache goes stale.
  *
- * LocationStore never removes these keys, so removing a location or toggling units cannot reset a limit.
+ * Options, one set per user (see option()):
+ * - lease  = expiry: one provider fetch in flight per user. Claimed by a bare INSERT, so the primary key
+ *            on `option` decides between racing requests on every database.
+ * - fetch  = last fetch time: forecast fetches at least MIN_FETCH_INTERVAL seconds apart.
+ * - search = "<windowStart>:<count>": SEARCH_MAX place searches per SEARCH_WINDOW.
  */
 class Throttle extends Base
 {
-    public const LEASE_KEY = 'windowsill_lease';
-    public const LAST_FETCH_KEY = 'windowsill_last_fetch';
-    public const SEARCH_KEY = 'windowsill_search';
+    public const LEASE = 'lease';
+    public const FETCH = 'fetch';
+    public const SEARCH = 'search';
 
     public const LEASE_TTL = 30;
     public const MIN_FETCH_INTERVAL = 15;
     public const SEARCH_WINDOW = 60;
     public const SEARCH_MAX = 10;
 
-    /** Core's UserMetadataModel table (it has no public constant for it). */
-    private const TABLE = 'user_has_metadata';
-
     /** A stamp further ahead than this is treated as absent (clock change or a planted value). */
     private const SKEW = 60;
+
+    /**
+     * The settings option for one of a user's limits (<= 37 characters; the column is VARCHAR(100)).
+     */
+    public static function option(int $userId, string $name): string
+    {
+        return 'windowsill_throttle_'.$userId.'_'.$name;
+    }
 
     /**
      * Atomic: true when this request now holds the user's refresh lease.
@@ -44,7 +53,7 @@ class Throttle extends Base
             return true;
         }
 
-        $current = $this->value($userId, self::LEASE_KEY);
+        $current = $this->value($userId, self::LEASE);
         if ($current === null) {
             // Released between our insert and our read: one more try.
             return $this->insertLease($userId, $now);
@@ -55,18 +64,18 @@ class Throttle extends Base
 
         // Expired, malformed or far in the future: delete exactly what we read, so two requests
         // taking over the same stale lease cannot both win.
-        $this->leaseRow($userId)->eq('value', $current)->remove();
+        $this->row($userId, self::LEASE)->eq('value', $current)->remove();
         return $this->insertLease($userId, $now);
     }
 
     public function releaseRefresh(int $userId): void
     {
-        $this->leaseRow($userId)->remove();
+        $this->row($userId, self::LEASE)->remove();
     }
 
     public function fetchWaitSeconds(int $userId, int $now): int
     {
-        $last = self::stamp($this->value($userId, self::LAST_FETCH_KEY), $now);
+        $last = self::stamp($this->value($userId, self::FETCH), $now);
         if ($last === 0) {
             return 0;
         }
@@ -75,7 +84,7 @@ class Throttle extends Base
 
     public function markFetch(int $userId, int $now): void
     {
-        $this->userMetadataModel->save($userId, [self::LAST_FETCH_KEY => (string) $now]);
+        $this->put($userId, self::FETCH, (string) $now, $now);
     }
 
     /**
@@ -85,7 +94,7 @@ class Throttle extends Base
     {
         $start = $now;
         $count = 0;
-        $raw = $this->value($userId, self::SEARCH_KEY);
+        $raw = $this->value($userId, self::SEARCH);
         if ($raw !== null && preg_match('/^(\d{1,10}):(\d{1,3})$/D', $raw, $m)) {
             $windowStart = (int) $m[1];
             if ($windowStart <= $now + self::SKEW && $now - $windowStart < self::SEARCH_WINDOW) {
@@ -97,29 +106,47 @@ class Throttle extends Base
         if ($count >= self::SEARCH_MAX) {
             return false;
         }
-        $this->userMetadataModel->save($userId, [self::SEARCH_KEY => $start.':'.($count + 1)]);
+        $this->put($userId, self::SEARCH, $start.':'.($count + 1), $now);
         return true;
     }
 
     private function insertLease(int $userId, int $now): bool
     {
-        return $this->db->table(self::TABLE)->insert([
-            'user_id' => $userId,
-            'name' => self::LEASE_KEY,
-            'value' => sprintf('%010d', $now + self::LEASE_TTL),
+        return $this->insert($userId, self::LEASE, sprintf('%010d', $now + self::LEASE_TTL), $now);
+    }
+
+    /**
+     * False when the option already exists (PicoDb answers a duplicate key with false on every engine).
+     */
+    private function insert(int $userId, string $name, string $value, int $now): bool
+    {
+        return $this->db->table(SettingModel::TABLE)->insert([
+            'option' => self::option($userId, $name),
+            'value' => $value,
             'changed_by' => $userId,
             'changed_on' => $now,
         ]);
     }
 
-    private function leaseRow(int $userId)
+    /**
+     * Upsert without a transaction: insert, and update when another request created the row first.
+     */
+    private function put(int $userId, string $name, string $value, int $now): void
     {
-        return $this->db->table(self::TABLE)->eq('user_id', $userId)->eq('name', self::LEASE_KEY);
+        if ($this->value($userId, $name) === null && $this->insert($userId, $name, $value, $now)) {
+            return;
+        }
+        $this->row($userId, $name)->update(['value' => $value, 'changed_by' => $userId, 'changed_on' => $now]);
     }
 
-    private function value(int $userId, string $key): ?string
+    private function row(int $userId, string $name)
     {
-        $value = $this->db->table(self::TABLE)->eq('user_id', $userId)->eq('name', $key)->findOneColumn('value');
+        return $this->db->table(SettingModel::TABLE)->eq('option', self::option($userId, $name));
+    }
+
+    private function value(int $userId, string $name): ?string
+    {
+        $value = $this->row($userId, $name)->findOneColumn('value');
         return is_string($value) ? $value : null;
     }
 

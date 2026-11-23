@@ -12,8 +12,8 @@ use Kanboard\Core\Base;
 class LocationStore extends Base
 {
     /**
-     * Keys clear() removes. Throttle's keys (lease, last fetch, search window) are deliberately absent, as
-     * save() and setUnits() leave them alone too: removing a location or toggling units never resets a limit.
+     * Keys clear() removes. Throttle keeps its state in the settings table, not here, so removing a
+     * location or toggling units never resets a limit.
      */
     public const KEYS = [
         'windowsill_lat', 'windowsill_lon', 'windowsill_label',
