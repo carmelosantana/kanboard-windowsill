@@ -23,6 +23,7 @@ commercial plan.
 
 - Your coordinates are rounded to two decimal places (about 1 km) before they are stored or sent.
 - The Kanboard server fetches the forecast; your browser never contacts the weather provider.
+- The text you type in place search is sent from the Kanboard server to Open-Meteo's geocoding API.
 - Your location is stored in the Kanboard database, so whoever administers the server or database can
   read it. Kanboard admins do not see it in the user interface.
 
@@ -30,6 +31,11 @@ commercial plan.
 
 Requests start at two fixed Open-Meteo URLs (geocoding and forecast). Kanboard's HTTP client follows up
 to 3 redirects, so the provider is trusted not to redirect elsewhere.
+
+## Limits
+
+Place search is not rate-limited in 0.1.0. Every search and forecast fetch shares the Kanboard server's
+Open-Meteo quota, which is counted per IP address (600 calls a minute, 10,000 a day).
 
 ## Requirements
 
