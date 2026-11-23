@@ -12,8 +12,9 @@ use PicoDb\SQLException;
  * One row per name and window in core's settings table: option `windowsill_budget_<name>_<floor(now / window)>`,
  * value a plain decimal count. Admission is a single conditional UPDATE (`count < limit`) that must change exactly
  * one row, so parallel requests can never pass more than the limit. After a successful take, the name's windows
- * strictly older than the caller's are deleted (best effort); a straggler from an older window never deletes a
- * newer one.
+ * older than the one before the caller's are deleted (best effort): the current and the immediately preceding
+ * window are always kept. A request lives far less than one window (60 s minimum), so no request still in
+ * flight can recreate a deleted window and restart its count, and a straggler never deletes a newer window.
  *
  * The server's Open-Meteo quota is shared per IP (600 a minute, 10,000 a day). Every search and forecast fetch
  * takes takeProviderCall(): USER_DAY per user, then GLOBAL_MINUTE and GLOBAL_DAY for the whole server.
@@ -113,8 +114,9 @@ class Budget extends Base
     }
 
     /**
-     * Deletes this name's windows strictly older than $window. Only options of the exact form
-     * `<prefix><name>_<digits>` count, so `search_1` never touches `search_1_2` (or `search_10`).
+     * Deletes this name's windows numbered below $window - 1, keeping the caller's window and the one before it.
+     * Only options of the exact form `<prefix><name>_<digits>` count, so `search_1` never touches `search_1_2`
+     * (or `search_10`).
      */
     protected function removeOlderWindows(string $name, int $window): void
     {
@@ -123,7 +125,7 @@ class Budget extends Base
         $options = $this->db->table(SettingModel::TABLE)->like('option', $prefix.'%')->findAllByColumn('option');
         $older = [];
         foreach ($options as $option) {
-            if (preg_match('/^'.preg_quote($prefix, '/').'(\d{1,19})$/D', $option, $m) && (int) $m[1] < $window) {
+            if (preg_match('/^'.preg_quote($prefix, '/').'(\d{1,19})$/D', $option, $m) && (int) $m[1] < $window - 1) {
                 $older[] = $option;
             }
         }

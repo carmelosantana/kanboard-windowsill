@@ -50,11 +50,6 @@ class OpenMeteoClient
     }
 
     /**
-     * @return array list of Place
-     * @throws \InvalidArgumentException when the trimmed query is not 2–100 characters
-     * @throws ProviderException
-     */
-    /**
      * True for a place query searchPlaces() accepts: a string of 2 to 100 characters after trimming.
      */
     public static function isValidQuery(mixed $query): bool
@@ -66,6 +61,11 @@ class OpenMeteoClient
         return $length >= 2 && $length <= self::MAX_NAME;
     }
 
+    /**
+     * @return array list of Place
+     * @throws \InvalidArgumentException when the trimmed query is not 2–100 characters
+     * @throws ProviderException
+     */
     public function searchPlaces(string $query): array
     {
         if (!self::isValidQuery($query)) {

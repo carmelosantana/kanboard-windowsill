@@ -69,23 +69,55 @@ class BudgetTest extends Base
         $this->assertSame(['windowsill_budget_t_30000960' => '3'], $this->rows('t'));
 
         $this->assertTrue($this->budget()->take('t', 3, 60, self::NOW + 60));
-        $this->assertSame(['windowsill_budget_t_30000961' => '1'], $this->rows('t'), 'the old window row is gone');
+        $this->assertSame(
+            ['windowsill_budget_t_30000960' => '3', 'windowsill_budget_t_30000961' => '1'],
+            $this->rows('t'),
+            'the previous window is kept'
+        );
+    }
+
+    public function testOnlyWindowsBeforeThePreviousOneAreDeleted(): void
+    {
+        $this->assertTrue($this->budget()->take('t', 3, 60, self::NOW));
+        $this->assertTrue($this->budget()->take('t', 3, 60, self::NOW + 60));
+        $this->assertArrayHasKey('windowsill_budget_t_30000960', $this->rows('t'), 'N survives a take in N+1');
+
+        $this->assertTrue($this->budget()->take('t', 3, 60, self::NOW + 120));
+        $this->assertSame(
+            ['windowsill_budget_t_30000961' => '1', 'windowsill_budget_t_30000962' => '1'],
+            $this->rows('t'),
+            'a take in N+2 deletes N and keeps N+1'
+        );
+    }
+
+    /**
+     * A request still in flight from window N after N+1 began continues N's count; it never restarts at 1.
+     */
+    public function testDelayedTakeContinuesThePreviousWindowsCount(): void
+    {
+        $this->assertTrue($this->budget()->take('t', 2, 60, self::NOW));
+        $this->assertTrue($this->budget()->take('t', 2, 60, self::NOW + 1));
+        $this->assertTrue($this->budget()->take('t', 2, 60, self::NOW + 60));
+
+        $this->assertFalse($this->budget()->take('t', 2, 60, self::NOW + 2), 'N is at its limit');
+        $this->assertSame('2', $this->rows('t')['windowsill_budget_t_30000960'] ?? null);
     }
 
     public function testOldWindowRowsAreDeletedAfterATake(): void
     {
         $this->plant('windowsill_budget_t_29999999', '3');
-        $this->plant('windowsill_budget_t_30000000', '1');
+        $this->plant('windowsill_budget_t_30000958', '1');
+        $this->plant('windowsill_budget_t_30000959', '2');
         $this->assertTrue($this->budget()->take('t', 3, 60, self::NOW));
-        $this->assertSame(['windowsill_budget_t_30000960' => '1'], $this->rows('t'));
+        $this->assertSame(['windowsill_budget_t_30000959' => '2', 'windowsill_budget_t_30000960' => '1'], $this->rows('t'));
     }
 
     public function testCleanupDoesNotTouchNamesSharingAPrefix(): void
     {
         $this->assertTrue($this->budget()->take('search_10', 3, 60, self::NOW));
-        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW + 60));
+        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW + 120));
         $this->assertSame(['windowsill_budget_search_10_30000960' => '1'], $this->rows('search_10'));
-        $this->assertSame(['windowsill_budget_search_1_30000961' => '1'], $this->rows('search_1'));
+        $this->assertSame(['windowsill_budget_search_1_30000962' => '1'], $this->rows('search_1'));
     }
 
     public function testNamesAreIndependent(): void
@@ -222,7 +254,7 @@ class BudgetTest extends Base
         $this->assertSame('3', $this->rows('t')['windowsill_budget_t_30000961'] ?? null, 'the newer window survives');
 
         $this->assertTrue($this->budget()->take('t', 4, 60, self::NOW + 61));
-        $this->assertSame(['windowsill_budget_t_30000961' => '4'], $this->rows('t'));
+        $this->assertSame('4', $this->rows('t')['windowsill_budget_t_30000961'] ?? null);
         $this->assertFalse($this->budget()->take('t', 4, 60, self::NOW + 62));
     }
 
@@ -242,11 +274,12 @@ class BudgetTest extends Base
     {
         $this->assertTrue($this->budget()->take('search_1_2', 3, 60, self::NOW));
         $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW));
-        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW + 60));
+        $this->assertTrue($this->budget()->take('search_1', 3, 60, self::NOW + 120));
         $this->assertSame(['windowsill_budget_search_1_2_30000960' => '1'], $this->rows('search_1_2'));
+        $this->assertSame(['windowsill_budget_search_1_30000962' => '1'], $this->rows('search_1'));
 
-        $this->assertTrue($this->budget()->take('search_1_2', 3, 60, self::NOW + 60));
-        $this->assertSame(['windowsill_budget_search_1_30000961' => '1'], $this->rows('search_1'));
-        $this->assertSame(['windowsill_budget_search_1_2_30000961' => '1'], $this->rows('search_1_2'));
+        $this->assertTrue($this->budget()->take('search_1_2', 3, 60, self::NOW + 120));
+        $this->assertSame(['windowsill_budget_search_1_30000962' => '1'], $this->rows('search_1'));
+        $this->assertSame(['windowsill_budget_search_1_2_30000962' => '1'], $this->rows('search_1_2'));
     }
 }

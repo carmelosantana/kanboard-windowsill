@@ -55,10 +55,10 @@ place search says lookups are paused. An invalid search query spends no budget.
 ### Ops note
 
 The limits live in Kanboard's `settings` table as a few small `windowsill_*` rows per active user and per
-window; old windows are deleted as new ones start. Rows for deleted users are not removed. On Postgres, two
-refreshes racing for the same user's lease log a duplicate-key error line; that is expected. A budget row an
-admin edits into something that is not a count (non-numeric, or negative on MySQL) refuses that budget until
-its window ends.
+window; windows older than the previous one are deleted as new ones start. Rows for deleted users are not
+removed. On Postgres, two refreshes racing for the same user's lease log a duplicate-key error line; that is
+expected. A budget row an admin edits into something that is not a count (non-numeric, or negative on MySQL)
+refuses that budget until its window ends.
 
 ## Requirements
 
