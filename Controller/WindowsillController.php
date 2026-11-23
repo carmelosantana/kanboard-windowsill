@@ -91,6 +91,17 @@ class WindowsillController extends BaseController
         $this->redirectToSettings();
     }
 
+    /**
+     * The dashboard widget's refresh: GET with the reusable CSRF token, answers the widget fragment.
+     */
+    public function widget(): void
+    {
+        $this->checkReusableGETCSRFParam();
+        $this->response->html($this->template->render('Windowsill:dashboard/widget', [
+            'windowsill' => $this->windowsillService->refresh($this->userSession->getId()),
+        ]));
+    }
+
     private function renderSettings(string $template, array $params): void
     {
         $this->response->html($this->helper->layout->user($template, $params + [

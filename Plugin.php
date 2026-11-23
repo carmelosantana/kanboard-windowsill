@@ -39,6 +39,19 @@ class Plugin extends Base
             $this->route->addRoute('windowsill/'.$action, 'WindowsillController', $action, 'Windowsill');
         }
         $this->hook->on('template:user:sidebar:actions', ['template' => 'Windowsill:user/sidebar']);
+        $this->hook->on('template:dashboard:show:before-filter-box', [
+            'template' => 'Windowsill:dashboard/widget',
+            // Only on your own dashboard: an admin viewing someone else's never sees their location.
+            'callable' => fn (array $user) => [
+                'windowsill' => $user['id'] == $this->userSession->getId() ? $this->windowsillService->cached((int) $user['id']) : null,
+                'windowsill_refresh_url' => $this->helper->url->href('WindowsillController', 'widget', [
+                    'plugin' => 'Windowsill',
+                    'csrf_token' => $this->token->getReusableCSRFToken(),
+                ]),
+            ],
+        ]);
+        $this->hook->on('template:layout:css', ['template' => 'plugins/Windowsill/Assets/css/windowsill.css']);
+        $this->hook->on('template:layout:js', ['template' => 'plugins/Windowsill/Assets/js/windowsill.js']);
     }
 
     public function getPluginName(): string        { return 'Windowsill'; }
