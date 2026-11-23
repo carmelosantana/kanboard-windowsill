@@ -13,7 +13,7 @@ class LocationStore extends Base
 {
     public const KEYS = [
         'windowsill_lat', 'windowsill_lon', 'windowsill_label',
-        'windowsill_units', 'windowsill_cache', 'windowsill_failed_at',
+        'windowsill_units', ForecastCache::CACHE_KEY, ForecastCache::FAILED_KEY,
     ];
 
     public const UNITS = ['us', 'metric'];
@@ -37,7 +37,8 @@ class LocationStore extends Base
 
     /**
      * @param array $place Place shape; values may be form strings.
-     * @throws \InvalidArgumentException
+     * @throws \InvalidArgumentException for an invalid place or unit.
+     * @throws \RuntimeException when the location could not be stored.
      */
     public function save(int $userId, array $place, ?string $units = null): array
     {
@@ -50,8 +51,8 @@ class LocationStore extends Base
         $parts = [];
         foreach (['name', 'admin1', 'country_code'] as $field) {
             $value = $place[$field] ?? '';
-            if (!is_string($value)) {
-                throw new \InvalidArgumentException("Place field $field must be a string.");
+            if (!is_string($value) || !mb_check_encoding($value, 'UTF-8')) {
+                throw new \InvalidArgumentException("Place field $field must be a UTF-8 string.");
             }
             $parts[$field] = trim($value);
         }
@@ -63,20 +64,22 @@ class LocationStore extends Base
         self::checkUnits($units);
 
         $label = mb_substr(implode(', ', array_filter($parts, fn ($p) => $p !== '')), 0, self::LABEL_MAX, 'UTF-8');
+        // Truncation can cut between parts: never end the label on a dangling separator.
+        $label = rtrim($label, ', ');
 
-        $this->userMetadataModel->save($userId, [
+        $this->store($userId, [
             'windowsill_lat' => self::format($lat),
             'windowsill_lon' => self::format($lon),
             'windowsill_label' => $label,
             'windowsill_units' => $units,
         ]);
-        $this->userMetadataModel->remove($userId, 'windowsill_failed_at');
 
         return ['lat' => $lat, 'lon' => $lon, 'label' => $label, 'units' => $units];
     }
 
     /**
      * @throws \InvalidArgumentException for a bad unit or when the user has no location.
+     * @throws \RuntimeException when the units could not be stored.
      */
     public function setUnits(int $userId, string $units): void
     {
@@ -84,8 +87,7 @@ class LocationStore extends Base
         if ($this->get($userId) === null) {
             throw new \InvalidArgumentException('No location is set.');
         }
-        $this->userMetadataModel->save($userId, ['windowsill_units' => $units]);
-        $this->userMetadataModel->remove($userId, 'windowsill_failed_at');
+        $this->store($userId, ['windowsill_units' => $units]);
     }
 
     public function clear(int $userId): void
@@ -93,6 +95,19 @@ class LocationStore extends Base
         foreach (self::KEYS as $key) {
             $this->userMetadataModel->remove($userId, $key);
         }
+    }
+
+    /**
+     * Saves location values and lifts any back-off, so the new place or units are fetched straight away.
+     *
+     * @throws \RuntimeException
+     */
+    private function store(int $userId, array $values): void
+    {
+        if (!$this->userMetadataModel->save($userId, $values)) {
+            throw new \RuntimeException('Could not store location');
+        }
+        $this->windowsillCache->clearFailed($userId);
     }
 
     private static function checkUnits(string $units): void

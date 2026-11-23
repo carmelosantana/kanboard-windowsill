@@ -161,6 +161,19 @@ class WindowsillControllerTest extends Base
         $this->assertStringNotContainsString('"><script>', $html);
     }
 
+    public function testSearchResultTextHasNoSpaceBeforeCommas(): void
+    {
+        $this->places([
+            ['name' => 'Berlin', 'admin1' => 'State of Berlin', 'country_code' => 'DE', 'lat' => 52.52, 'lon' => 13.41],
+            ['name' => 'Zürich', 'admin1' => '', 'country_code' => 'CH', 'lat' => 47.37, 'lon' => 8.55],
+        ]);
+
+        $html = $this->call('search', ['q' => 'test']);
+
+        $this->assertStringContainsString('<strong>Berlin</strong>, State of Berlin, DE', $html);
+        $this->assertStringContainsString('<strong>Zürich</strong>, CH', $html);
+    }
+
     public function testSearchWithNoResultsSaysSo(): void
     {
         $this->places([]);
@@ -269,6 +282,44 @@ class WindowsillControllerTest extends Base
         $this->assertRedirectedToSettings();
         $this->assertSame('Location removed.', $this->container['flash']->getMessage('success'));
         $this->assertNull($this->store()->get($this->alice));
+    }
+
+    /**
+     * A userMetadataModel whose save() reports failure; getAll() answers $rows.
+     */
+    private function failingMetadata(array $rows = []): void
+    {
+        $meta = $this->createMock(\Kanboard\Model\UserMetadataModel::class);
+        $meta->method('getAll')->willReturn($rows);
+        $meta->method('save')->willReturn(false);
+        $this->container['userMetadataModel'] = $meta;
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->never())->method($this->anything());
+        $this->container['logger'] = $logger;
+    }
+
+    public function testSaveStorageFailureFlashes(): void
+    {
+        $this->failingMetadata();
+
+        $this->call('save', ['name' => 'Berlin', 'admin1' => '', 'country_code' => 'DE', 'lat' => '52.52', 'lon' => '13.41']);
+
+        $this->assertRedirectedToSettings();
+        $this->assertSame('Your location could not be saved.', $this->container['flash']->getMessage('failure'));
+        $this->assertSame('', (string) $this->container['flash']->getMessage('success'));
+    }
+
+    public function testUnitsStorageFailureFlashes(): void
+    {
+        $this->failingMetadata([
+            'windowsill_lat' => '52.52', 'windowsill_lon' => '13.41',
+            'windowsill_label' => 'Berlin, DE', 'windowsill_units' => 'metric',
+        ]);
+
+        $this->call('units', ['units' => 'us']);
+
+        $this->assertRedirectedToSettings();
+        $this->assertSame('Your location could not be saved.', $this->container['flash']->getMessage('failure'));
     }
 
     public function testUnitsWithoutLocationAsksForOne(): void

@@ -16,8 +16,8 @@ class ForecastCache extends Base
     public const MAX_LEN = 255;
 
     private const VERSION = '1';
-    private const CACHE_KEY = 'windowsill_cache';
-    private const FAILED_KEY = 'windowsill_failed_at';
+    public const CACHE_KEY = 'windowsill_cache';
+    public const FAILED_KEY = 'windowsill_failed_at';
 
     private const INT = '-?\d{1,6}';
     private const FLOAT = '-?\d{1,3}\.\d';

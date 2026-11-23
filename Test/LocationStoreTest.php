@@ -7,6 +7,12 @@ use Kanboard\Plugin\Windowsill\Plugin;
 
 class LocationStoreTest extends Base
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        (new Plugin($this->container))->initialize();
+    }
+
     private function user(string $name): int
     {
         return (int) $this->container['userModel']->create(['username' => $name]);
@@ -35,7 +41,6 @@ class LocationStoreTest extends Base
 
     public function testContainerRegistersStore(): void
     {
-        (new Plugin($this->container))->initialize();
         $this->assertInstanceOf(LocationStore::class, $this->container['windowsillLocation']);
     }
 
@@ -77,6 +82,9 @@ class LocationStoreTest extends Base
             'lat non-numeric' => [self::springfield(['lat' => 'abc']), null],
             'empty name' => [self::springfield(['name' => '']), null],
             'bad units' => [self::springfield(), 'kelvin'],
+            'invalid utf-8 name' => [self::springfield(['name' => "Z\xC3rich"]), null],
+            'invalid utf-8 admin1' => [self::springfield(['admin1' => "\xFF\xFE"]), null],
+            'invalid utf-8 country' => [self::springfield(['country_code' => "U\x80"]), null],
         ];
     }
 
@@ -92,6 +100,49 @@ class LocationStoreTest extends Base
         } catch (\InvalidArgumentException $e) {
             $this->assertSame([], $this->windowsillKeys($id));
         }
+    }
+
+    public function testTruncatedLabelDropsTrailingSeparator(): void
+    {
+        $id = $this->user('alice');
+        $label = $this->store()->save($id, self::springfield(['name' => str_repeat('a', 119)]))['label'];
+        $this->assertSame(str_repeat('a', 119), $label);
+
+        $label = $this->store()->save($id, self::springfield(['name' => str_repeat('a', 118)]))['label'];
+        $this->assertSame(str_repeat('a', 118), $label);
+    }
+
+    /**
+     * A userMetadataModel whose save() reports failure; getAll() answers $rows.
+     */
+    private function failingMetadata(array $rows = []): void
+    {
+        $meta = $this->createMock(\Kanboard\Model\UserMetadataModel::class);
+        $meta->method('getAll')->willReturn($rows);
+        $meta->expects($this->once())->method('save')->willReturn(false);
+        $meta->expects($this->never())->method('remove');
+        $this->container['userMetadataModel'] = $meta;
+    }
+
+    public function testSaveThrowsWhenMetadataIsNotStored(): void
+    {
+        $id = $this->user('alice');
+        $this->failingMetadata();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Could not store location');
+        $this->store()->save($id, self::springfield());
+    }
+
+    public function testSetUnitsThrowsWhenMetadataIsNotStored(): void
+    {
+        $id = $this->user('alice');
+        $this->failingMetadata([
+            'windowsill_lat' => '37.22', 'windowsill_lon' => '-93.30',
+            'windowsill_label' => 'Springfield', 'windowsill_units' => 'us',
+        ]);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Could not store location');
+        $this->store()->setUnits($id, 'metric');
     }
 
     public function testUsersAreIsolated(): void
@@ -188,6 +239,9 @@ class LocationStoreTest extends Base
             $this->markTestSkipped('en_DK.utf8 locale not installed');
         }
         try {
+            if (sprintf('%.2f', 52.52) !== '52,52') {
+                $this->markTestSkipped('locale does not format with a decimal comma');
+            }
             $id = $this->user('alice');
             $this->store()->save($id, self::springfield());
             $location = $this->store()->get($id);

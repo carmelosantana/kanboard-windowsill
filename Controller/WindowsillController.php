@@ -60,6 +60,8 @@ class WindowsillController extends BaseController
             $this->flash->success(t('Location saved.'));
         } catch (\InvalidArgumentException $e) {
             $this->flash->failure(t('That location is not valid.'));
+        } catch (\RuntimeException $e) {
+            $this->flash->failure(t('Your location could not be saved.'));
         }
 
         $this->redirectToSettings();
@@ -78,6 +80,8 @@ class WindowsillController extends BaseController
             $this->flash->failure($this->windowsillLocation->get($userId) === null
                 ? t('Choose a location first.')
                 : t('That unit is not valid.'));
+        } catch (\RuntimeException $e) {
+            $this->flash->failure(t('Your location could not be saved.'));
         }
 
         $this->redirectToSettings();

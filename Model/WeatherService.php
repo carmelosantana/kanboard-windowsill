@@ -18,7 +18,7 @@ class WeatherService extends Base
     public const STALE_MAX = 86400;
     public const BACKOFF = 600;
 
-    /** A cache stamped further ahead than this (clock skew) is treated as a miss. */
+    /** Clock skew tolerated, in seconds: a cache or failure stamped further ahead than this is ignored. */
     private const SKEW = 60;
 
     public function cached(int $userId, ?int $now = null): array
@@ -49,7 +49,7 @@ class WeatherService extends Base
         }
 
         $failedAt = $this->windowsillCache->failedAt($userId);
-        $inBackoff = $failedAt > 0 && $now - $failedAt < self::BACKOFF;
+        $inBackoff = $failedAt > 0 && $failedAt <= $now + self::SKEW && $now - $failedAt < self::BACKOFF;
 
         if ($inBackoff) {
             return self::fallback($location, $entry, $age, $now);

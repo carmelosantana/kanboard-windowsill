@@ -57,6 +57,7 @@ if ($forecast !== null) {
     </footer>
 <?php elseif ($state === 'pending'): ?>
     <p class="windowsill-message"><?= t('Loading weather…') ?></p>
+    <noscript><?= t('Weather needs JavaScript to load.') ?></noscript>
 <?php else: ?>
     <p class="windowsill-message"><?= t('Weather is unavailable right now.') ?></p>
     <footer class="windowsill-footer"><?= $settingsLink ?></footer>

@@ -15,9 +15,8 @@
                     <?php foreach (['name', 'admin1', 'country_code', 'lat', 'lon'] as $field): ?>
                         <input type="hidden" name="<?= $field ?>" value="<?= $this->text->e($place[$field]) ?>">
                     <?php endforeach ?>
-                    <strong><?= $this->text->e($place['name']) ?></strong>
-                    <?php if ($place['admin1'] !== ''): ?>, <?= $this->text->e($place['admin1']) ?><?php endif ?>
-                    <?php if ($place['country_code'] !== ''): ?>, <?= $this->text->e($place['country_code']) ?><?php endif ?>
+                    <?php $rest = array_filter([$place['admin1'], $place['country_code']], fn ($p) => $p !== '') ?>
+                    <strong><?= $this->text->e($place['name']) ?></strong><?php foreach ($rest as $part): ?>, <?= $this->text->e($part) ?><?php endforeach ?>
                     <?php $default = strtoupper($place['country_code']) === 'US' ? 'us' : 'metric' ?>
                     <select name="units" aria-label="<?= $this->text->e(t('Units')) ?>">
                         <?php foreach ($unit_options as $value => $label): ?>

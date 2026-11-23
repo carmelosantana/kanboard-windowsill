@@ -185,6 +185,24 @@ class WeatherServiceTest extends Base
         $this->assertSame('unavailable', $this->service()->cached($this->userId, self::NOW)['state']);
     }
 
+    public function testFutureFailureStampBeyondSkewIsIgnored(): void
+    {
+        $this->client(1);
+        $this->saveBerlin();
+        $this->container['windowsillCache']->markFailed($this->userId, self::NOW + 3600);
+
+        $this->assertSame('fresh', $this->service()->refresh($this->userId, self::NOW)['state']);
+    }
+
+    public function testFutureFailureStampWithinSkewStillBacksOff(): void
+    {
+        $this->client(0);
+        $this->saveBerlin();
+        $this->container['windowsillCache']->markFailed($this->userId, self::NOW + 30);
+
+        $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW)['state']);
+    }
+
     public function testBoundaries(): void
     {
         $this->client(1);
@@ -263,14 +281,13 @@ class WeatherServiceTest extends Base
     public function testUnstorableResultBacksOff(): void
     {
         $this->client(1);
-        $this->saveBerlin();
-
         $cache = $this->getMockBuilder(ForecastCache::class)
             ->setConstructorArgs([$this->container])
             ->onlyMethods(['write'])
             ->getMock();
         $cache->method('write')->willReturn(false);
         $this->container['windowsillCache'] = $cache;
+        $this->saveBerlin();
 
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())->method('warning')->with('Windowsill: could not store forecast');

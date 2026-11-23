@@ -175,6 +175,7 @@ class WidgetTest extends Base
 
         $this->assertStringContainsString('data-windowsill-refresh="'.htmlspecialchars($url, ENT_QUOTES, 'UTF-8').'"', $html);
         $this->assertStringContainsString('Loading weather…', $html);
+        $this->assertStringContainsString('<noscript>Weather needs JavaScript to load.</noscript>', $html);
         $this->assertStringNotContainsString('as of', $html);
     }
 
