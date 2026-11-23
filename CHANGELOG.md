@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-23
 
 - Dashboard widget with current conditions and a three-day forecast, shown only on your own dashboard.
 - Weather page in your profile: search for a place, pick a match, choose US or metric units, or remove
