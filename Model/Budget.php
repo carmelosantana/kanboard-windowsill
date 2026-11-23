@@ -12,9 +12,11 @@ use PicoDb\SQLException;
  * One row per name and window in core's settings table: option `windowsill_budget_<name>_<floor(now / window)>`,
  * value a plain decimal count. Admission is a single conditional UPDATE (`count < limit`) that must change exactly
  * one row, so parallel requests can never pass more than the limit. After a successful take, the name's windows
- * older than the one before the caller's are deleted (best effort): the current and the immediately preceding
- * window are always kept. A request lives far less than one window (60 s minimum), so no request still in
- * flight can recreate a deleted window and restart its count, and a straggler never deletes a newer window.
+ * that ended at least RETENTION seconds before the caller's window began are deleted (best effort); the
+ * immediately preceding window is always kept. A request would have to stall for over an hour between reading
+ * the clock and its insert to recreate a deleted window, far beyond every engine's default lock wait (SQLite
+ * 30 s busy timeout, InnoDB 50 s), and a straggler never deletes a newer window. Minute budgets keep up to 61
+ * rows per name, day budgets two.
  *
  * The server's Open-Meteo quota is shared per IP (600 a minute, 10,000 a day). Every search and forecast fetch
  * takes takeProviderCall(): USER_DAY per user, then GLOBAL_MINUTE and GLOBAL_DAY for the whole server.
@@ -28,6 +30,9 @@ class Budget extends Base
 
     /** Option prefix; the full option is at most 18 + 40 + 1 + 19 = 78 characters (the column is VARCHAR(100)). */
     private const PREFIX = 'windowsill_budget_';
+
+    /** Seconds of past windows kept after a take: cleanup can only race a request older than this. */
+    public const RETENTION = 3600;
 
     /**
      * True (and counted) while fewer than $limit takes of $name happened in the current window of $window seconds.
@@ -58,7 +63,7 @@ class Budget extends Base
 
         if ($taken) {
             try {
-                $this->removeOlderWindows($name, $current);
+                $this->removeOlderWindows($name, $current - max(1, intdiv(self::RETENTION, $window)));
             } catch (SQLException $e) {
                 // Housekeeping only: the take stands.
             }
@@ -114,18 +119,19 @@ class Budget extends Base
     }
 
     /**
-     * Deletes this name's windows numbered below $window - 1, keeping the caller's window and the one before it.
+     * Deletes this name's windows numbered below $keepFrom (the caller passes its window minus
+     * max(1, RETENTION / length), so its own window and at least the one before it are kept).
      * Only options of the exact form `<prefix><name>_<digits>` count, so `search_1` never touches `search_1_2`
      * (or `search_10`).
      */
-    protected function removeOlderWindows(string $name, int $window): void
+    protected function removeOlderWindows(string $name, int $keepFrom): void
     {
         $prefix = self::PREFIX.$name.'_';
         // LIKE only narrows the rows ('_' is a wildcard there, so it may match more); the regex below decides.
         $options = $this->db->table(SettingModel::TABLE)->like('option', $prefix.'%')->findAllByColumn('option');
         $older = [];
         foreach ($options as $option) {
-            if (preg_match('/^'.preg_quote($prefix, '/').'(\d{1,19})$/D', $option, $m) && (int) $m[1] < $window - 1) {
+            if (preg_match('/^'.preg_quote($prefix, '/').'(\d{1,19})$/D', $option, $m) && (int) $m[1] < $keepFrom) {
                 $older[] = $option;
             }
         }
