@@ -131,6 +131,11 @@ class OpenMeteoClientTest extends Base
             'temperature is a string' => [$with(function (&$d) { $d['current']['temperature_2m'] = '36'; })],
             'temperature huge' => [$with(function (&$d) { $d['current']['temperature_2m'] = 1e200; })],
             'two days' => [$with(function (&$d) { $d['daily']['time'] = ['2026-11-23', '2026-11-24']; })],
+            'every daily column two long' => [$with(function (&$d) {
+                foreach ($d['daily'] as $column => $values) {
+                    $d['daily'][$column] = array_slice($values, 0, 2);
+                }
+            })],
             'ragged daily arrays' => [$with(function (&$d) { array_pop($d['daily']['temperature_2m_min']); })],
             'date format' => [$with(function (&$d) { $d['daily']['time'][0] = '23/11/2026'; })],
             'impossible date' => [$with(function (&$d) { $d['daily']['time'][0] = '2026-02-30'; })],
@@ -223,6 +228,37 @@ class OpenMeteoClientTest extends Base
         $this->transport('', false);
         $this->expectException(\InvalidArgumentException::class);
         (new OpenMeteoClient($this->container))->searchPlaces($query);
+    }
+
+    public static function acceptedQueries(): array
+    {
+        return [
+            'two chars' => ['ab'],
+            'hundred chars' => [str_repeat('a', 100)],
+            'hundred multibyte chars' => [str_repeat('ü', 100)],
+        ];
+    }
+
+    /**
+     * @dataProvider acceptedQueries
+     */
+    public function testSearchAcceptsBoundaryQueries(string $query): void
+    {
+        $this->transport(self::fixture('geocode-empty.json'));
+        $this->assertSame([], (new OpenMeteoClient($this->container))->searchPlaces($query));
+        $this->assertSame($query, $this->query(OpenMeteoClient::GEOCODE_URL)['name']);
+    }
+
+    public function testTransportErrorIsNotChained(): void
+    {
+        $this->transport(new ClientException('Unreachable URL: https://api.open-meteo.com/v1/forecast?latitude=52.52'));
+        try {
+            (new OpenMeteoClient($this->container))->forecast(52.52, 13.41, 'us');
+            $this->fail('expected ProviderException');
+        } catch (ProviderException $e) {
+            $this->assertNull($e->getPrevious());
+            $this->assertStringNotContainsString('52', $e->getMessage());
+        }
     }
 
     public static function searchFailures(): array

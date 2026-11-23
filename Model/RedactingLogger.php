@@ -7,8 +7,9 @@ use Psr\Log\LoggerInterface;
 
 /**
  * Wraps the application logger for Windowsill's HTTP transport: Kanboard's HTTP client logs full
- * request URLs on failure, and ours carry coordinates and place queries. Every http(s) URL in a
- * message loses its query string; context is dropped.
+ * request URLs on failure (and response bodies under DEBUG), and ours carry coordinates and place
+ * queries. Every http(s) URL in a message loses its query string, a logged body is replaced whole,
+ * and context is dropped.
  */
 class RedactingLogger extends AbstractLogger
 {
@@ -23,6 +24,10 @@ class RedactingLogger extends AbstractLogger
 
     private static function redact(string $message): string
     {
+        // Under DEBUG core logs the response body, which echoes coordinates and place names.
+        if (str_starts_with($message, 'HttpClient: body=')) {
+            return 'HttpClient: body=[redacted]';
+        }
         return preg_replace('~(https?://[^\s?#)]*)\?[^\s)]*~i', '$1?[redacted]', $message);
     }
 }

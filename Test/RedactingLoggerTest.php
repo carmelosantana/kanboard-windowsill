@@ -44,6 +44,14 @@ class RedactingLoggerTest extends Base
         $this->assertSame('Windowsill: nothing to see? here', $inner->records[0]['message']);
     }
 
+    public function testDebugBodyIsRedacted(): void
+    {
+        $inner = new WindowsillCapturingLogger();
+        (new RedactingLogger($inner))->debug('HttpClient: body={"latitude":52.52,"results":[{"name":"Springfield"}]}'."\nmore");
+
+        $this->assertSame('HttpClient: body=[redacted]', $inner->records[0]['message']);
+    }
+
     public function testRegisteredTransportRedactsCoreFailureLogs(): void
     {
         (new Plugin($this->container))->initialize();

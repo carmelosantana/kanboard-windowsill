@@ -91,8 +91,9 @@ class OpenMeteoClient
         try {
             $body = $this->container['windowsillHttp']->get($url, [], true);
             $data = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
-        } catch (ClientException | \JsonException $e) {
-            throw new ProviderException('Provider request failed', 0, $e);
+        } catch (ClientException | \JsonException) {
+            // Not chained: core's exception message carries the request URL.
+            throw new ProviderException('Provider request failed');
         }
         if (!is_array($data) || array_is_list($data)) {
             throw new ProviderException('Provider response is not an object');
