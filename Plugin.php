@@ -34,6 +34,11 @@ class Plugin extends Base
         $this->container['windowsillService'] = function ($c) {
             return new WeatherService($c);
         };
+
+        foreach (['settings', 'search', 'save', 'units', 'remove', 'widget'] as $action) {
+            $this->route->addRoute('windowsill/'.$action, 'WindowsillController', $action, 'Windowsill');
+        }
+        $this->hook->on('template:user:sidebar:actions', ['template' => 'Windowsill:user/sidebar']);
     }
 
     public function getPluginName(): string        { return 'Windowsill'; }
