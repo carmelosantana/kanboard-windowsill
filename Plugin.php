@@ -7,6 +7,7 @@ use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\RedactingLogger;
+use Kanboard\Plugin\Windowsill\Model\WeatherService;
 use Pimple\Container;
 
 class Plugin extends Base
@@ -29,6 +30,9 @@ class Plugin extends Base
         };
         $this->container['windowsillCache'] = function ($c) {
             return new ForecastCache($c);
+        };
+        $this->container['windowsillService'] = function ($c) {
+            return new WeatherService($c);
         };
     }
 
