@@ -37,14 +37,24 @@ proxy and certificate settings (`HTTP_PROXY_*`, `HTTP_VERIFY_SSL_CERTIFICATE`) s
 ## Limits
 
 Every search and forecast fetch shares the Kanboard server's Open-Meteo quota, which is counted per IP
-address (600 calls a minute, 10,000 a day). To keep one user from spending it, each user gets:
+address (600 calls a minute, 10,000 a day). To stay under it:
 
-- at most 10 place searches a minute;
-- one forecast refresh in flight at a time;
-- forecast fetches at least 15 seconds apart, however often the location or units change.
+- each user gets at most 10 place searches a minute;
+- the whole server makes at most 300 provider calls a minute and 8,000 a day (searches and forecast
+  fetches together);
+- each user has one forecast refresh in flight at a time;
+- each user's forecast fetches are at least 15 seconds apart, however often the location or units change.
 
-A held-back refresh shows the cached forecast (or "Loading weather…") and the widget tries again up to
-twice on that page load.
+The counts are kept by the database, so parallel requests cannot slip past them. A held-back refresh shows
+the cached forecast (or "Loading weather…") and the widget tries again up to twice on that page load. When
+the server-wide budget is spent, the widget shows the cached forecast (or says weather is unavailable) and
+place search says lookups are paused.
+
+### Ops note
+
+The limits live in Kanboard's `settings` table as a few small `windowsill_*` rows per active user and per
+window; old windows are deleted as new ones start. Rows for deleted users are not removed. On Postgres, two
+refreshes racing for the same user's lease log a duplicate-key error line; that is expected.
 
 ## Requirements
 

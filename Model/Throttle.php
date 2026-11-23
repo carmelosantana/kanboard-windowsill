@@ -15,18 +15,16 @@ use Kanboard\Model\SettingModel;
  * - lease  = expiry: one provider fetch in flight per user. Claimed by a bare INSERT, so the primary key
  *            on `option` decides between racing requests on every database.
  * - fetch  = last fetch time: forecast fetches at least MIN_FETCH_INTERVAL seconds apart.
- * - search = "<windowStart>:<count>": SEARCH_MAX place searches per SEARCH_WINDOW.
+ *
+ * Search counts live in Budget (atomic, per window).
  */
 class Throttle extends Base
 {
     public const LEASE = 'lease';
     public const FETCH = 'fetch';
-    public const SEARCH = 'search';
 
     public const LEASE_TTL = 30;
     public const MIN_FETCH_INTERVAL = 15;
-    public const SEARCH_WINDOW = 60;
-    public const SEARCH_MAX = 10;
 
     /** A stamp further ahead than this is treated as absent (clock change or a planted value). */
     private const SKEW = 60;
@@ -40,17 +38,18 @@ class Throttle extends Base
     }
 
     /**
-     * Atomic: true when this request now holds the user's refresh lease.
+     * Atomic: the lease value this request now holds (pass it to releaseRefresh()), or null when another holds it.
      *
      * @throws \LogicException inside a transaction: a duplicate-key failure would roll it back.
      */
-    public function claimRefresh(int $userId, int $now): bool
+    public function claimRefresh(int $userId, int $now): ?string
     {
         if ($this->db->getConnection()->inTransaction()) {
             throw new \LogicException('Windowsill: claimRefresh() must not run inside a transaction');
         }
-        if ($this->insertLease($userId, $now)) {
-            return true;
+        $lease = $this->insertLease($userId, $now);
+        if ($lease !== null) {
+            return $lease;
         }
 
         $current = $this->value($userId, self::LEASE);
@@ -59,7 +58,7 @@ class Throttle extends Base
             return $this->insertLease($userId, $now);
         }
         if (self::stamp($current, $now + self::LEASE_TTL) > $now) {
-            return false;
+            return null;
         }
 
         // Expired, malformed or far in the future: delete exactly what we read, so two requests
@@ -68,9 +67,13 @@ class Throttle extends Base
         return $this->insertLease($userId, $now);
     }
 
-    public function releaseRefresh(int $userId): void
+    /**
+     * Compare-and-delete: removes the lease only while it is still the caller's own, so a holder whose lease
+     * expired and was taken over never frees the newer holder's.
+     */
+    public function releaseRefresh(int $userId, string $ownValue): void
     {
-        $this->row($userId, self::LEASE)->remove();
+        $this->row($userId, self::LEASE)->eq('value', $ownValue)->remove();
     }
 
     public function fetchWaitSeconds(int $userId, int $now): int
@@ -87,32 +90,10 @@ class Throttle extends Base
         $this->put($userId, self::FETCH, (string) $now, $now);
     }
 
-    /**
-     * Fixed window: true (and counted) while fewer than SEARCH_MAX searches started in the current window.
-     */
-    public function allowSearch(int $userId, int $now): bool
+    private function insertLease(int $userId, int $now): ?string
     {
-        $start = $now;
-        $count = 0;
-        $raw = $this->value($userId, self::SEARCH);
-        if ($raw !== null && preg_match('/^(\d{1,10}):(\d{1,3})$/D', $raw, $m)) {
-            $windowStart = (int) $m[1];
-            if ($windowStart <= $now + self::SKEW && $now - $windowStart < self::SEARCH_WINDOW) {
-                $start = $windowStart;
-                $count = (int) $m[2];
-            }
-        }
-
-        if ($count >= self::SEARCH_MAX) {
-            return false;
-        }
-        $this->put($userId, self::SEARCH, $start.':'.($count + 1), $now);
-        return true;
-    }
-
-    private function insertLease(int $userId, int $now): bool
-    {
-        return $this->insert($userId, self::LEASE, sprintf('%010d', $now + self::LEASE_TTL), $now);
+        $lease = sprintf('%010d', $now + self::LEASE_TTL);
+        return $this->insert($userId, self::LEASE, $lease, $now) ? $lease : null;
     }
 
     /**

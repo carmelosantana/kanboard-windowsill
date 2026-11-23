@@ -5,6 +5,8 @@ use KanboardTests\units\Base;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
+use Kanboard\Plugin\Windowsill\Model\Throttle;
+use Kanboard\Model\SettingModel;
 use Kanboard\Plugin\Windowsill\Model\WeatherService;
 use Kanboard\Plugin\Windowsill\Plugin;
 use Psr\Log\LoggerInterface;
@@ -307,7 +309,7 @@ class WeatherServiceTest extends Base
     {
         $this->client(0);
         $this->writeCache($this->saveBerlin(), self::NOW - 7200);
-        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
+        $this->assertNotNull($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
 
         $vm = $this->service()->refresh($this->userId, self::NOW);
         $this->assertSame('pending', $vm['state']);
@@ -357,7 +359,7 @@ class WeatherServiceTest extends Base
         $this->saveBerlin();
 
         $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW)['state']);
-        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW + 1));
+        $this->assertNotNull($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW + 1));
     }
 
     public function testCachedNeverThrottlesOrClaims(): void
@@ -369,6 +371,59 @@ class WeatherServiceTest extends Base
         $vm = $this->service()->cached($this->userId, self::NOW);
         $this->assertSame('pending', $vm['state']);
         $this->assertSame(0, $vm['retry_after']);
-        $this->assertTrue($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
+        $this->assertNotNull($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW));
+    }
+
+    private function exhaustGlobalMinute(int $now): void
+    {
+        $this->assertTrue($this->container['db']->table(SettingModel::TABLE)->insert([
+            'option' => 'windowsill_budget_global_m_'.intdiv($now, 60), 'value' => '300', 'changed_by' => 0, 'changed_on' => 0,
+        ]));
+    }
+
+    public function testGlobalBudgetExhaustedServesStaleWithoutFetching(): void
+    {
+        $this->client(0);
+        $this->writeCache($this->saveBerlin(), self::NOW - 7200);
+        $this->exhaustGlobalMinute(self::NOW);
+
+        $vm = $this->service()->refresh($this->userId, self::NOW);
+        $this->assertSame('stale', $vm['state']);
+        $this->assertSame(0, $vm['retry_after']);
+        $this->assertSame(0, $this->container['windowsillCache']->failedAt($this->userId), 'not marked failed');
+        $this->assertNotNull($this->container['windowsillThrottle']->claimRefresh($this->userId, self::NOW), 'lease released');
+    }
+
+    public function testGlobalBudgetExhaustedWithoutCacheIsUnavailable(): void
+    {
+        $this->client(0);
+        $this->saveBerlin();
+        $this->exhaustGlobalMinute(self::NOW);
+
+        $this->assertSame('unavailable', $this->service()->refresh($this->userId, self::NOW)['state']);
+        $this->assertSame(0, $this->container['windowsillCache']->failedAt($this->userId));
+    }
+
+    /**
+     * Another request fetches between our spacing check and our claim (it released its lease already):
+     * the check is repeated once the lease is ours.
+     */
+    public function testFetchStampedBetweenCheckAndClaimIsPending(): void
+    {
+        $this->client(0);
+        $this->saveBerlin();
+        $this->container['windowsillThrottle'] = new class($this->container) extends Throttle {
+            public function claimRefresh(int $userId, int $now): ?string
+            {
+                $this->markFetch($userId, $now);
+                return parent::claimRefresh($userId, $now);
+            }
+        };
+
+        $vm = $this->service()->refresh($this->userId, self::NOW);
+        $this->assertSame('pending', $vm['state']);
+        $this->assertSame(15, $vm['retry_after']);
+        $this->assertSame('', (string) $this->container['db']->table(SettingModel::TABLE)
+            ->eq('option', Throttle::option($this->userId, Throttle::LEASE))->findOneColumn('value'), 'lease released');
     }
 }

@@ -3,6 +3,7 @@
 namespace Kanboard\Plugin\Windowsill\Controller;
 
 use Kanboard\Controller\BaseController;
+use Kanboard\Plugin\Windowsill\Model\Budget;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 
 /**
@@ -21,8 +22,14 @@ class WindowsillController extends BaseController
     public function search(): void
     {
         $this->checkCSRFForm();
-        if (!$this->windowsillThrottle->allowSearch($this->userSession->getId(), time())) {
+        $now = time();
+        if (!$this->windowsillBudget->take('search_'.$this->userSession->getId(), Budget::USER_SEARCH, 60, $now)) {
             $this->flash->failure(t('Too many searches. Try again in a minute.'));
+            $this->redirectToSettings();
+            return;
+        }
+        if (!$this->windowsillBudget->takeProviderCall($now)) {
+            $this->flash->failure(t('Weather lookups are paused for now. Try again later.'));
             $this->redirectToSettings();
             return;
         }

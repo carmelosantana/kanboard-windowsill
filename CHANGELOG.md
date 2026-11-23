@@ -15,5 +15,7 @@
   bounds each request to 5 seconds and 64 KB.
 - Per-user request limits: 10 place searches a minute, one forecast refresh in flight, and forecast
   fetches at least 15 seconds apart; removing a location or switching units does not reset them.
+- Request budgets are counted atomically by the database, so parallel requests cannot pass them, and the
+  server as a whole makes at most 300 Open-Meteo calls a minute and 8,000 a day.
 - Privacy: coordinates are rounded to about 1 km before they are stored or sent, and coordinates and
   place queries are never written to Kanboard's logs.

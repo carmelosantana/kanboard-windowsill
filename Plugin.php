@@ -2,6 +2,7 @@
 namespace Kanboard\Plugin\Windowsill;
 
 use Kanboard\Core\Plugin\Base;
+use Kanboard\Plugin\Windowsill\Model\Budget;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\HttpsFetcher;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
@@ -31,6 +32,9 @@ class Plugin extends Base
         };
         $this->container['windowsillThrottle'] = function ($c) {
             return new Throttle($c);
+        };
+        $this->container['windowsillBudget'] = function ($c) {
+            return new Budget($c);
         };
 
         foreach (['settings', 'search', 'save', 'units', 'remove', 'widget'] as $action) {

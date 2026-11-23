@@ -410,4 +410,21 @@ class WindowsillControllerTest extends Base
         $this->assertRedirectedToSettings();
         $this->assertSame('Too many searches. Try again in a minute.', $this->container['flash']->getMessage('failure'));
     }
+
+    public function testGlobalMinuteBudgetRefusesAnotherUsersSearch(): void
+    {
+        $this->clientNeverCalled();
+        // Planted for this minute and the next, in case the clock ticks over mid-test.
+        foreach ([0, 60] as $ahead) {
+            $this->assertTrue($this->container['db']->table(\Kanboard\Model\SettingModel::TABLE)->insert([
+                'option' => 'windowsill_budget_global_m_'.intdiv(time() + $ahead, 60), 'value' => '300',
+                'changed_by' => 0, 'changed_on' => 0,
+            ]));
+        }
+        $this->loginAs($this->bob);
+
+        $this->assertSame('', $this->call('search', ['q' => 'Springfield']));
+        $this->assertRedirectedToSettings();
+        $this->assertSame('Weather lookups are paused for now. Try again later.', $this->container['flash']->getMessage('failure'));
+    }
 }

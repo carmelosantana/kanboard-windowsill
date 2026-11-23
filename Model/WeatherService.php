@@ -77,8 +77,23 @@ class WeatherService extends Base
         }
 
         $wait = $this->windowsillThrottle->fetchWaitSeconds($userId, $now);
-        if ($wait > 0 || !$this->windowsillThrottle->claimRefresh($userId, $now)) {
+        $lease = $wait > 0 ? null : $this->windowsillThrottle->claimRefresh($userId, $now);
+        if ($lease !== null) {
+            // Another request may have fetched and released between the check and the claim.
+            $wait = $this->windowsillThrottle->fetchWaitSeconds($userId, $now);
+            if ($wait > 0) {
+                $this->windowsillThrottle->releaseRefresh($userId, $lease);
+                $lease = null;
+            }
+        }
+        if ($lease === null) {
             return self::pending($location, $entry, $age, $now, max(self::RETRY_MIN, min(self::RETRY_MAX, $wait)));
+        }
+
+        if (!$this->windowsillBudget->takeProviderCall($now)) {
+            // The server-wide provider budget is spent: not a provider failure, so no back-off stamp.
+            $this->windowsillThrottle->releaseRefresh($userId, $lease);
+            return self::fallback($location, $entry, $age, $now);
         }
 
         try {
@@ -88,7 +103,7 @@ class WeatherService extends Base
             $this->windowsillCache->markFailed($userId, $now);
             return self::fallback($location, $entry, $age, $now);
         } finally {
-            $this->windowsillThrottle->releaseRefresh($userId);
+            $this->windowsillThrottle->releaseRefresh($userId, $lease);
         }
 
         if ($this->windowsillCache->write($userId, $forecast, $now, ForecastCache::keyFor($location))) {
