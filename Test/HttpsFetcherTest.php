@@ -158,6 +158,17 @@ class HttpsFetcherTest extends Base
             'ftp' => ['ftp://api.open-meteo.com/'],
             'empty' => [''],
             'loopback' => ['https://127.0.0.1/'],
+            'trailing dot host' => ['https://api.open-meteo.com./'],
+            'userinfo before evil host' => ['https://api.open-meteo.com@evil.example/'],
+            'backslash userinfo' => ['https://evil.example\\@api.open-meteo.com/'],
+            'IDN look-alike (Cyrillic a)' => ["https://\u{0430}pi.open-meteo.com/"],
+            'IDN look-alike (punycode)' => ['https://xn--pi-7kc.open-meteo.com/'],
+            'NUL byte' => ["https://api.open-meteo.com/v1/forecast\0x"],
+            'newline' => ["https://api.open-meteo.com/v1/forecast\nHost: evil.example"],
+            'carriage return' => ["https://api.open-meteo.com/\r"],
+            'tab' => ["https://api.open-meteo.com/\tx"],
+            'space' => ['https://api.open-meteo.com/ x'],
+            'DEL' => ["https://api.open-meteo.com/\x7f"],
         ];
     }
 
@@ -260,10 +271,22 @@ class HttpsFetcherTest extends Base
             }
         }
 
-        $local = $this->local(1);
-        foreach (['/redirect', '/status/500', '/status/404', '/big', '/slow'] as $path) {
+        // php -S serves one request at a time: wait out any /slow left from an earlier test before timing anything.
+        $local = $this->local();
+        $this->assertSame('{"ok":true}', $local->get(self::url('/ok')));
+
+        // Each non-slow path must take its own branch (served at once, not timed out), and the redirect is not followed.
+        $paths = ['/redirect', '/status/500', '/status/404', '/big'];
+        file_put_contents(self::$hits, '');
+        foreach ($paths as $path) {
+            $start = microtime(true);
             $this->assertFails($local, $path);
+            $this->assertLessThan(0.9, microtime(true) - $start, "$path answered, not timed out");
         }
+        $this->assertSame($paths, file(self::$hits, FILE_IGNORE_NEW_LINES));
+
+        // Last, so nothing queues behind it.
+        $this->assertFails($this->local(1), '/slow');
     }
 
     public function testRegisteredTransportIsTheFetcher(): void

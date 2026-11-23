@@ -27,7 +27,8 @@ class HttpsFetcher
      */
     public function get(string $url): string
     {
-        $parts = parse_url($url);
+        // Control characters and whitespace never belong in our URLs; curl rejects a NUL with a ValueError.
+        $parts = preg_match('/[\x00-\x20\x7f]/', $url) ? false : parse_url($url);
         if (!is_array($parts) || !$this->isAllowed($parts)) {
             throw new ProviderException('Provider URL is not allowed');
         }
