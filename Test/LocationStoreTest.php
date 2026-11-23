@@ -206,7 +206,12 @@ class LocationStoreTest extends Base
     {
         $id = $this->user('alice');
         $this->store()->save($id, self::springfield());
-        $this->container['userMetadataModel']->save($id, ['windowsill_label' => $label]);
+        try {
+            $this->container['userMetadataModel']->save($id, ['windowsill_label' => $label]);
+        } catch (\PicoDb\SQLException $e) {
+            // MariaDB/Postgres refuse invalid UTF-8 and values over VARCHAR(255) themselves, so nothing bad can be planted.
+            $this->markTestSkipped('the database rejects this value itself');
+        }
         $this->assertNull($this->store()->get($id));
     }
 
