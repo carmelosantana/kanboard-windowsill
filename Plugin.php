@@ -3,6 +3,7 @@ namespace Kanboard\Plugin\Windowsill;
 
 use Kanboard\Core\Http\Client;
 use Kanboard\Core\Plugin\Base;
+use Kanboard\Plugin\Windowsill\Model\ForecastCache;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\RedactingLogger;
@@ -25,6 +26,9 @@ class Plugin extends Base
         };
         $this->container['windowsillLocation'] = function ($c) {
             return new LocationStore($c);
+        };
+        $this->container['windowsillCache'] = function ($c) {
+            return new ForecastCache($c);
         };
     }
 
