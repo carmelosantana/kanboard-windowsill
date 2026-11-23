@@ -187,6 +187,34 @@ class ForecastCacheTest extends Base
         $this->assertNull($this->cache()->decode($raw));
     }
 
+    public static function oversized(): array
+    {
+        $valid = '1|1700000000|52.52,13.41,us|3600|36.0,28.1,2,9.3,0|2026-11-23,71,38.6,32.7,30;2026-11-24,77,35.9,32.4,13;2026-11-25,3,35.6,30.6,0';
+        return [
+            '256 bytes' => [$valid.str_repeat('0', ForecastCache::MAX_LEN + 1 - strlen($valid))],
+            '1 MB' => [str_repeat($valid.'|', intdiv(1 << 20, strlen($valid) + 1) + 1)],
+        ];
+    }
+
+    /**
+     * @dataProvider oversized
+     */
+    public function testDecodeRejectsOversizedInput(string $raw): void
+    {
+        $this->assertGreaterThan(ForecastCache::MAX_LEN, strlen($raw));
+        $this->assertNull($this->cache()->decode($raw));
+    }
+
+    public function testDecodeDoesNotSplitOversizedInput(): void
+    {
+        // A metadata value longer than the column allows is rejected before explode() allocates per-field strings.
+        $raw = str_repeat('|', 1 << 20);
+        memory_reset_peak_usage();
+        $before = memory_get_peak_usage();
+        $this->assertNull($this->cache()->decode($raw));
+        $this->assertLessThan(1 << 20, memory_get_peak_usage() - $before);
+    }
+
     public function testFailedAtRoundTrip(): void
     {
         $id = $this->user('carol');

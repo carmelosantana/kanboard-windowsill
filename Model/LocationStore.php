@@ -28,7 +28,7 @@ class LocationStore extends Base
         $label = $all['windowsill_label'] ?? '';
         $units = $all['windowsill_units'] ?? '';
 
-        if ($lat === null || $lon === null || !is_string($label) || $label === '' || !in_array($units, self::UNITS, true)) {
+        if ($lat === null || $lon === null || !self::validLabel($label) || !in_array($units, self::UNITS, true)) {
             return null;
         }
 
@@ -108,6 +108,15 @@ class LocationStore extends Base
             throw new \RuntimeException('Could not store location');
         }
         $this->windowsillCache->clearFailed($userId);
+    }
+
+    /**
+     * Core's user integrations form saves any posted key, so a stored label is re-checked on read.
+     */
+    private static function validLabel(mixed $label): bool
+    {
+        return is_string($label) && $label !== '' && mb_check_encoding($label, 'UTF-8')
+            && mb_strlen($label, 'UTF-8') <= self::LABEL_MAX;
     }
 
     private static function checkUnits(string $units): void

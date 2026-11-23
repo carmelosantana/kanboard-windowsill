@@ -56,6 +56,10 @@ class ForecastCache extends Base
      */
     public function decode(string $raw): ?array
     {
+        // Core's user integrations form can store any length; never split what encode() could not have written.
+        if (strlen($raw) > self::MAX_LEN) {
+            return null;
+        }
         $fields = explode('|', $raw);
         if (count($fields) !== 6 || $fields[0] !== self::VERSION) {
             return null;

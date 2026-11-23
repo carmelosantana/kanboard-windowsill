@@ -188,6 +188,37 @@ class LocationStoreTest extends Base
         $this->assertNull($this->store()->get($id));
     }
 
+    public static function badStoredLabel(): array
+    {
+        return [
+            'invalid utf-8' => ["Z\xC3rich"],
+            '121 characters' => [str_repeat('Ж', 121)],
+            '1 MB' => [str_repeat('a', 1 << 20)],
+        ];
+    }
+
+    /**
+     * Core's user integrations form saves any posted key, so a stored label may never have passed save().
+     *
+     * @dataProvider badStoredLabel
+     */
+    public function testGetIgnoresBadStoredLabel(string $label): void
+    {
+        $id = $this->user('alice');
+        $this->store()->save($id, self::springfield());
+        $this->container['userMetadataModel']->save($id, ['windowsill_label' => $label]);
+        $this->assertNull($this->store()->get($id));
+    }
+
+    public function testGetAcceptsStoredLabelAtLimit(): void
+    {
+        $id = $this->user('alice');
+        $this->store()->save($id, self::springfield());
+        $label = str_repeat('Ж', 120);
+        $this->container['userMetadataModel']->save($id, ['windowsill_label' => $label]);
+        $this->assertSame(['lat' => 37.22, 'lon' => -93.3, 'label' => $label, 'units' => 'us'], $this->store()->get($id));
+    }
+
     public function testFormStringsAndArrays(): void
     {
         $id = $this->user('alice');
