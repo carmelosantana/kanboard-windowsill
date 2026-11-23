@@ -29,8 +29,10 @@ commercial plan.
 
 ## Trust
 
-Requests start at two fixed Open-Meteo URLs (geocoding and forecast). Kanboard's HTTP client follows up
-to 3 redirects, so the provider is trusted not to redirect elsewhere.
+The server talks only to `api.open-meteo.com` and `geocoding-api.open-meteo.com`, over HTTPS on port
+443, through the plugin's own fetcher rather than Kanboard's HTTP client. It never follows a redirect
+(any 3xx is a failure), gives up after 5 seconds, and stops reading a response past 64 KB. Kanboard's
+proxy and certificate settings (`HTTP_PROXY_*`, `HTTP_VERIFY_SSL_CERTIFICATE`) still apply.
 
 ## Limits
 

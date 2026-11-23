@@ -2,9 +2,7 @@
 require_once 'tests/units/Base.php';
 
 use KanboardTests\units\Base;
-use Kanboard\Core\Http\Client;
-use Kanboard\Core\Http\ClientException;
-use Kanboard\Core\Http\InvalidStatusException;
+use Kanboard\Plugin\Windowsill\Model\HttpsFetcher;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Model\ProviderException;
 use Psr\Log\LoggerInterface;
@@ -32,10 +30,10 @@ class OpenMeteoClientTest extends Base
      */
     private function transport(string|\Throwable $result, bool $expectCall = true): void
     {
-        $http = $this->createMock(Client::class);
+        $http = $this->createMock(HttpsFetcher::class);
         $http->expects($expectCall ? $this->once() : $this->never())
             ->method('get')
-            ->with($this->anything(), $this->anything(), $this->identicalTo(true))
+            ->with($this->callback('is_string'))
             ->willReturnCallback(function (string $url) use ($result) {
                 $this->urls[] = $url;
                 if ($result instanceof \Throwable) {
@@ -124,8 +122,8 @@ class OpenMeteoClientTest extends Base
     {
         $with = fn (callable $m) => self::forecastWith($m);
         return [
-            'client exception' => [new ClientException('Unreachable URL: https://api.open-meteo.com/v1/forecast?latitude=52.52')],
-            'invalid status' => [new InvalidStatusException('Request failed with status code 500', 500, 'oops')],
+            'transport failure' => [new ProviderException('Provider request failed')],
+            'unexpected status' => [new ProviderException('Provider returned an unexpected status')],
             'empty body' => [''],
             'not json' => ['not json'],
             'empty array' => ['[]'],
@@ -257,7 +255,7 @@ class OpenMeteoClientTest extends Base
 
     public function testTransportErrorIsNotChained(): void
     {
-        $this->transport(new ClientException('Unreachable URL: https://api.open-meteo.com/v1/forecast?latitude=52.52'));
+        $this->transport(new ProviderException('Provider request failed'));
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects($this->once())->method('warning');
         $this->container['logger'] = $logger;
@@ -273,7 +271,7 @@ class OpenMeteoClientTest extends Base
     public static function searchFailures(): array
     {
         return [
-            'client exception' => [new ClientException('Unreachable URL: https://geocoding-api.open-meteo.com/v1/search?name=Springfield')],
+            'transport failure' => [new ProviderException('Provider request failed')],
             'not json' => ['not json'],
             'results not a list' => ['{"results":"x"}'],
         ];

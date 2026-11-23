@@ -1,26 +1,20 @@
 <?php
 namespace Kanboard\Plugin\Windowsill;
 
-use Kanboard\Core\Http\Client;
 use Kanboard\Core\Plugin\Base;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
+use Kanboard\Plugin\Windowsill\Model\HttpsFetcher;
 use Kanboard\Plugin\Windowsill\Model\LocationStore;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
-use Kanboard\Plugin\Windowsill\Model\RedactingLogger;
 use Kanboard\Plugin\Windowsill\Model\WeatherService;
-use Pimple\Container;
 
 class Plugin extends Base
 {
     public function initialize(): void
     {
-        // Kanboard's own HTTP client over a small container whose logger strips URL query strings:
-        // core logs the full request URL on failure, and ours carry coordinates and place queries.
+        // Our own transport, not core's Client: no redirects, two fixed hosts, bounded time and size.
         $this->container['windowsillHttp'] = function ($c) {
-            $small = new Container();
-            $small['logger'] = function () use ($c) { return new RedactingLogger($c['logger']); };
-            $small['queueManager'] = function () use ($c) { return $c['queueManager']; };
-            return new Client($small);
+            return new HttpsFetcher($c);
         };
         $this->container['windowsillClient'] = function ($c) {
             return new OpenMeteoClient($c);

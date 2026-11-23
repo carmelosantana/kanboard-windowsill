@@ -2,8 +2,8 @@
 require_once 'tests/units/Base.php';
 
 use KanboardTests\units\Base;
-use Kanboard\Core\Http\Client;
 use Kanboard\Plugin\Windowsill\Model\ForecastCache;
+use Kanboard\Plugin\Windowsill\Model\HttpsFetcher;
 use Kanboard\Plugin\Windowsill\Model\OpenMeteoClient;
 use Kanboard\Plugin\Windowsill\Plugin;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -27,7 +27,7 @@ class ForecastCacheTest extends Base
      */
     private function fixtureForecast(): array
     {
-        $http = $this->createMock(Client::class);
+        $http = $this->createMock(HttpsFetcher::class);
         $http->method('get')->willReturn(file_get_contents(__DIR__.'/fixtures/forecast.json'));
         $this->container['windowsillHttp'] = $http;
         return (new OpenMeteoClient($this->container))->forecast(52.52, 13.41, 'us');

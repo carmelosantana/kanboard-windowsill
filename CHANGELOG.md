@@ -11,5 +11,7 @@
   while the provider is down, and a failed fetch is not retried for 10 minutes.
 - The widget refreshes itself from the Kanboard server (same origin, CSRF-protected); the browser never
   contacts the weather provider.
+- The server fetches only from the two Open-Meteo hosts over HTTPS, never follows a redirect, and
+  bounds each request to 5 seconds and 64 KB.
 - Privacy: coordinates are rounded to about 1 km before they are stored or sent, and coordinates and
-  place queries are redacted from Kanboard's logs.
+  place queries are never written to Kanboard's logs.

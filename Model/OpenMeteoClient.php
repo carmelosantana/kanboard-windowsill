@@ -2,7 +2,6 @@
 
 namespace Kanboard\Plugin\Windowsill\Model;
 
-use Kanboard\Core\Http\ClientException;
 use Pimple\Container;
 
 /**
@@ -88,12 +87,11 @@ class OpenMeteoClient
      */
     private function fetch(string $url): array
     {
+        $body = $this->container['windowsillHttp']->get($url);
         try {
-            $body = $this->container['windowsillHttp']->get($url, [], true);
             $data = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
-        } catch (ClientException | \JsonException) {
-            // Not chained: core's exception message carries the request URL.
-            throw new ProviderException('Provider request failed');
+        } catch (\JsonException) {
+            throw new ProviderException('Provider response is not JSON');
         }
         if (!is_array($data) || array_is_list($data)) {
             throw new ProviderException('Provider response is not an object');
